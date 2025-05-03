@@ -1,4 +1,4 @@
-name: Run Submission
+name: Run SearchByDoubleFiltering
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Build Docker image
-      run: docker build -t submission .
+      run: docker build -t team_df .
 
     - name: Create result directory
       run: mkdir -p result
@@ -27,7 +27,7 @@ jobs:
         docker run \
           -v ${{ github.workspace }}/benchmark-dev-pubmed23.h5:/app/data/benchmark-dev-pubmed23.h5:ro \
           -v ${{ github.workspace }}/result:/app/result \
-          submission /bin/bash /app/autoexec_all.sh
+          team_df /bin/bash /app/autoexec_all_pubmed23.sh
 
     - name: Archive result
       uses: actions/upload-artifact@v3
