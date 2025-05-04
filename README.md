@@ -16,6 +16,7 @@ docker build -t teamdoublefiltering .
 docker run --memory=16g --memory-swap=16g \
 -v <path to benchmark-dev-pubmed23.h5>:/app/data/benchmark-dev-pubmed23.h5:ro \
 -v <path to directory for result files>:/app/result \
+teamdoublefiltering \
 /bin/bash /app/autoexec_all_pubmed23.sh
 ```
 ## Result Files
