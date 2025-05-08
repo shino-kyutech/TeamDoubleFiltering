@@ -13,6 +13,7 @@ WORKDIR /app
 
 # マウント用ディレクトリを作成
 RUN mkdir data
+RUN mkdir result
 
 # src（プログラムソース）をコピー
 COPY src/ src/
@@ -47,7 +48,7 @@ COPY autoexec_all_pubmed23.sh .
 COPY df_parameters_w21_p192_2bit.txt .
 
 # 実行結果を格納するフォルダを作成
-RUN mkdir result
+RUN mkdir temp
 
 # シェルスクリプトに実行権限を与える
 RUN chmod +x autoexec*.sh

@@ -49,3 +49,4 @@ typedef enum {GHP, BP, QBP, PQBP, SQBP, CSQBP} partition_type;
 //#endif
 
 #define CLOCK_METHOD CLOCK_MONOTONIC // 経過時間と求めるときのパラメータ
+//#define CLOCK_METHOD CLOCK_REALTIME // 経過時間と求めるときのパラメータ
