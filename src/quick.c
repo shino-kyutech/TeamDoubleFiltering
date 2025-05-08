@@ -37,9 +37,9 @@ int main(void)
 	int nc = num_data / 10;
 
 	printf("sort starts\n");
-	clock_gettime(CLOCK_REALTIME, &tp1);
+	clock_gettime(CLOCK_METHOD, &tp1);
 	quick_sort(idx2, sc, 0, num_data - 1);
-	clock_gettime(CLOCK_REALTIME, &tp2);
+	clock_gettime(CLOCK_METHOD, &tp2);
 	sec = tp2.tv_sec - tp1.tv_sec;
 	nsec = tp2.tv_nsec - tp1.tv_nsec;
 	if(nsec < 0){
@@ -56,7 +56,7 @@ int main(void)
 	printf("k = %d, sc[idx2[%d] = %d\n", k, k + 1, sc[idx2[k + 1]]);
 
 	printf("select starts\n");
-	clock_gettime(CLOCK_REALTIME, &tp1);
+	clock_gettime(CLOCK_METHOD, &tp1);
 //	quick_select_k(idx, sc, 0, num_data - 1, nc);
 	#ifdef _OPENMP
 	int nt = NUM_THREADS;
@@ -64,7 +64,7 @@ int main(void)
 	omp_set_num_threads(nt);
 	#endif
 	int nc_by_para = quick_select_k_para(idx, sc, num_data, nc, nt);
-	clock_gettime(CLOCK_REALTIME, &tp2);
+	clock_gettime(CLOCK_METHOD, &tp2);
 	sec = tp2.tv_sec - tp1.tv_sec;
 	nsec = tp2.tv_nsec - tp1.tv_nsec;
 	if(nsec < 0){
@@ -79,14 +79,14 @@ int main(void)
 
 	printf("select work starts\n");
 	work_select_para *wp = new_work_select_para(nt);
-	clock_gettime(CLOCK_REALTIME, &tp1);
+	clock_gettime(CLOCK_METHOD, &tp1);
 //	quick_select_k(idx, sc, 0, num_data - 1, nc);
 	#ifdef _OPENMP
 	printf("NUM_THREADS = %d\n", nt);
 	omp_set_num_threads(nt);
 	#endif
 	int nc_by_para2 = quick_select_k_para_work(idx3, sc, num_data, nc, wp);
-	clock_gettime(CLOCK_REALTIME, &tp2);
+	clock_gettime(CLOCK_METHOD, &tp2);
 	sec = tp2.tv_sec - tp1.tv_sec;
 	nsec = tp2.tv_nsec - tp1.tv_nsec;
 	if(nsec < 0){

@@ -1,5 +1,5 @@
 #!/bin/bash
-if [ $# -ne 25 ] ; then
+if [ $# -ne 27 ] ; then
 echo "Usage>"
 echo "1.  1st pivot  = pivot file for narrow sketch (for 1st filtering)"
 echo "2.  2nd pivot  = pivot file for qpsmap (for 2nd filtering)"
@@ -26,6 +26,8 @@ echo "22. #threads_p = number of threads for preparation before search (0 -> sam
 echo "23. FTR_ON     = 0 -> Second memory, 1 -> RAM"
 echo "24. use pd     = (0: without, 1: use pd)"
 echo "25. batch file = file name including hyper parameters (nc1 and nc2), or NONE for interactive manner"
+echo "26. summary.csv = summary file"
+echo "27. search_cost.csv = file for search cost"
 
 exit 1
 fi
@@ -155,11 +157,13 @@ n0=$1; shift
 fo=$1; shift
 use_pd=$1; shift
 batch=$1; shift
+summary=$1; shift
+scost=$1; shift
 
 if [ $batch != NONE ] ; then
-if [ ! -e $batch ] ; then
-echo batch file $batch does not exist.
-exit
+  if [ ! -e $batch ] ; then
+  echo batch file $batch does not exist.
+  exit
 fi
 fi
 
@@ -374,13 +378,19 @@ cflags="$cflags -DBUCKET_FILE=\"$b1\""
 cflags="$cflags -DSMAP_PIVOT_FILE=\"$p2\""
 cflags="$cflags -DQUERY_FILE=\"$qr\""
 cflags="$cflags -DANSWER_FILE=\"$an\""
-cflags="$cflags -DRESULT_FILE=\"result/$rs\""
+cflags="$cflags -DRESULT_FILE=\"$rs/result.csv\""
 cflags="$cflags -DQUERY_2ND_FILE=\"$q2\""
 cflags="$cflags -DANSWER_2ND_FILE=\"$a2\""
 cflags="$cflags -DQUERY_3RD_FILE=\"$q3\""
 cflags="$cflags -DANSWER_3RD_FILE=\"$a3\""
 if [ $batch != NONE ] ; then
 cflags="$cflags -DINPUT_HYPER_PARAMETER=\"$batch\""
+fi
+if [ $summary != NONE ] ; then
+cflags="$cflags -DSUMMARY_FILE=\"$rs/$summary\""
+fi
+if [ $scost != NONE ] ; then
+cflags="$cflags -DPRINT_SEARCH_COST=\"$rs/$scost\""
 fi
 cflags="$cflags -DANSWER_DIST_FLOAT"
 

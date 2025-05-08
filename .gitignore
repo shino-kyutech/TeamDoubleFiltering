@@ -1,2 +1,12 @@
+*
+!*.*
+*.o
 *.h5
 *.ftr
+*.txt
+!Dockerfile
+result/*
+!result/.gitkeep
+result1/
+pivot/*
+!pivot/*.csv

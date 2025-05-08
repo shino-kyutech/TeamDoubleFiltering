@@ -47,3 +47,5 @@ typedef enum {GHP, BP, QBP, PQBP, SQBP, CSQBP} partition_type;
 //#ifndef EXPANDED_SKETCH
 //#define BIT (1 << PJT_DIM) 
 //#endif
+
+#define CLOCK_METHOD CLOCK_MONOTONIC // 経過時間と求めるときのパラメータ

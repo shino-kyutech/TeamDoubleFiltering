@@ -77,27 +77,8 @@ void read_smap_pivot(char *filename, smap_pivot_type *pivot)
             }
         }
         pivot->num_axis[i] = na;
-        fprintf(stderr, "num_axis[%d] = %d\n", i, pivot->num_axis[i]);
         #endif
     }
-/*
-    #ifdef USE_PD
-    for(int dim = 0; dim < SMAP_DIM; dim++) {
-        printf("dim = %3d: num_axis = %d, ", dim, pivot->num_axis[dim]);
-        for(int i = 0; i < pivot->num_axis[dim]; i++) {
-            printf("axis[%d] = %d, ", i, pivot->axis[dim][i]);
-        }
-        printf("\n");
-        printf("unused = ");
-        for(int i = pivot->num_axis[dim]; i < FTR_DIM; i++) {
-            printf("%4d", pivot->axis[dim][i]);
-        }
-        printf("\n");
-        getchar();
-    }
-    getchar();
-    #endif
-*/
 
 	fclose(pfp); 
 }

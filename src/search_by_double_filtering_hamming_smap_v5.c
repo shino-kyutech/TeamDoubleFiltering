@@ -77,7 +77,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 {
     struct timespec tp1, tp2, tp3;
     #ifdef USE_INTERVAL
-        clock_gettime(CLOCK_REALTIME, &tp1);
+        clock_gettime(CLOCK_METHOD, &tp1);
         // Interval list を用いるときは，
         // ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする． 
         // まず，filtering_by_sketch_enumeration_hamming_interval を用いて，フィルタリングを行い，interval_list の形式で候補を求める．
@@ -102,7 +102,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
         #else
         #error "FILTERING_BY_SKETCH_ENUMERATION_(HAMMING | C2N) should be defined"
         #endif
-        clock_gettime(CLOCK_REALTIME, &tp2);
+        clock_gettime(CLOCK_METHOD, &tp2);
 
         #ifdef SECOND_FILTERING_KNN_BUFFER
         // 2nd filtering で 1st filtering で求めた nc 個の候補から qpsmap 射影距離で上位（近い方が上位） num_candidates_2nd を選択する．
@@ -145,7 +145,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
             FREE(ans_buff, sizeof(answer_type) * nc * 2);
         #endif
 
-        clock_gettime(CLOCK_REALTIME, &tp3);
+        clock_gettime(CLOCK_METHOD, &tp3);
         filtering_cost_1st += e_time(&tp1, &tp2);
         filtering_cost_2nd += e_time(&tp2, &tp3);
         
@@ -518,7 +518,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
     #ifdef USE_INTERVAL
 //      fprintf(stderr, "df: PARALLEL_ENUM = %d, PARA_ENUM_INF = %d\n", PARALLEL_ENUM, PARA_ENUM_INF); getchar();
 //        struct timespec tp1, tp2, tp3;
-        clock_gettime(CLOCK_REALTIME, &tp1);
+        clock_gettime(CLOCK_METHOD, &tp1);
         // Interval list を用いるときは，
         // ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする． 
         // まず，filtering_by_sketch_enumeration_hamming_interval を用いて，フィルタリングを行い，interval_list の形式で候補を求める．
@@ -542,7 +542,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
         #else
             #error "FILTERING_BY_SKETCH_ENUMERATION_(HAMMING | C2N) should be defined"
         #endif
-        clock_gettime(CLOCK_REALTIME, &tp2);
+        clock_gettime(CLOCK_METHOD, &tp2);
 
         int num_data_1st = nc / nt;	// スレッドが 1st filtering で求めるデータ数
         num_candidates_1st = num_data_1st * nt;     // 1st filtering で求めるデータ数の合計（元の num_candidates_1st がスレッド数で割り切れないときに端数を切り捨てる）
@@ -638,7 +638,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 //fprintf(stderr, "second filtering OK\n");
 
     #else
-        clock_gettime(CLOCK_REALTIME, &tp1);
+        clock_gettime(CLOCK_METHOD, &tp1);
         #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
             static sub_dimension *table = NULL;
             static int table_size = 0;
@@ -772,7 +772,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
             #error "FILTERING_BY_SKETCH_ENUMERATION_C2N WITHOUT_INTERVAL not supported for multi-thread"
             return num_candidates_1st;
         #endif
-        clock_gettime(CLOCK_REALTIME, &tp2);
+        clock_gettime(CLOCK_METHOD, &tp2);
     #endif
 
     #if defined(USE_INTERVAL) || defined(FILTERING_BY_SKETCH_ENUMERATION_HAMMING)
@@ -787,7 +787,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 //            }
         }
         FREE(ans_buff, sizeof(answer_type) * num_data_2nd * nt);
-        clock_gettime(CLOCK_REALTIME, &tp3);
+        clock_gettime(CLOCK_METHOD, &tp3);
         filtering_cost_1st += e_time(&tp1, &tp2);
         filtering_cost_2nd += e_time(&tp2, &tp3);
     #elif defined(SECOND_FILTERING_SELECT) && !defined(USE_INTERVAL)
@@ -2098,6 +2098,22 @@ int main(int argc, char *argv[])
     #else
     FILE *fp = stdin;
     #endif
+    #ifdef SUMMARY_FILE
+    FILE *fp_summary = fopen(SUMMARY_FILE, "w");
+    fprintf(stderr, "SUMMARY_FILE = %s\n", SUMMARY_FILE);
+    if(fp_summary == NULL) {
+        fprintf(stderr, "open error\n");
+    } else {
+        fprintf(stderr, "open OK\n");
+    }
+    #else
+    FILE *fp_summary = NULL;
+    #endif
+    #ifdef PRINT_SEARCH_COST
+    FILE *fp_search_cost = fopen(PRINT_SEARCH_COST, "w");
+    #else
+    FILE *fp_search_cost = NULL;
+    #endif
 
 	make_bitcnt_tbl(8);
 
@@ -2236,7 +2252,7 @@ int main(int argc, char *argv[])
     for(int i = 0; i < num_data; i++) { data_num_org[i] = i; } // 特徴データを元の順序で読み込むためのデータ番号の配列としても使用する．
 
     struct timespec tread1, tread2;
-    clock_gettime(CLOCK_REALTIME, &tread1);
+    clock_gettime(CLOCK_METHOD, &tread1);
 
     #ifdef _OPENMP
     omp_set_num_threads(NUM_THREADS_PREPERATION);
@@ -2274,7 +2290,7 @@ int main(int argc, char *argv[])
             fprintf(stderr, "made packed quantized images of data %4d%%\r", (i + 1) / (nd / 100));
         }
     }
-    clock_gettime(CLOCK_REALTIME, &tread2);
+    clock_gettime(CLOCK_METHOD, &tread2);
     fprintf(stderr, "\ndone: %.4lf (sec)\n", e_time(&tread1, &tread2));
 
 // 2段階検索で実際に特徴データを2次記憶から読み込んで処理を行う場合は，ランダムアクセスになるので，ブロック読込みは非効率．
@@ -2311,7 +2327,7 @@ int main(int argc, char *argv[])
         }
 	}
 
-    clock_gettime(CLOCK_REALTIME, &tread2);
+    clock_gettime(CLOCK_METHOD, &tread2);
     fprintf(stderr, "\ndone: %.4lf (sec)\n", e_time(&tread1, &tread2));
 
 	FREE(temp, sizeof(tiny_int) * PACKED_QPSMAP_SIZE);
@@ -2331,6 +2347,9 @@ int main(int argc, char *argv[])
         for(int q = 0; q < max_num_qr; q++) { top_k[q] = new_kNN_buffer(num_top_k); }
     #endif
 
+    if(fp_summary != NULL) {
+        fprintf(fp_summary, "trial, query, nc1, nc2, recall@1, recall@30, filtering, 1st, 2nd, kNN, ave, stdev\n");
+    }
     int trial = 0;
     while(1) {
         if(fp == stdin) fprintf(stderr, "nc1 ? ");
@@ -2416,7 +2435,7 @@ int main(int argc, char *argv[])
 			#endif
 
             struct timespec tp1, tp2, tp3;
-            clock_gettime(CLOCK_REALTIME, &tp1);
+            clock_gettime(CLOCK_METHOD, &tp1);
             double e_time_filtering = 0, e_time_kNN = 0, e_time_total = 0;
             reset_filtering_cost();
 
@@ -2444,7 +2463,7 @@ int main(int argc, char *argv[])
                 #endif
 
                 // 1st filtering のための query_sketch を作る．
-	            clock_gettime(CLOCK_REALTIME, &tp1);
+	            clock_gettime(CLOCK_METHOD, &tp1);
                 set_query_sketch(&query_sketch, &qr[m][q], pivot);
 
                 // 2nd filtering のためのデータの圧縮形式の qpsmap との射影距離を計算するための表関数 table_for_packed を作る．
@@ -2459,7 +2478,7 @@ int main(int argc, char *argv[])
                 double_filtering_by_sketch_enumeration_hamming_and_qpsmap(&query_sketch, table_for_packed, bucket_ds, packed_qpsmap_data, data_num_candidates, num_candidates_1st, num_candidates_2nd);
                 #endif
 //fprintf(stderr, "double_filtering_by_sketch_enumeration_hamming_and_qpsmap OK\n");
-                clock_gettime(CLOCK_REALTIME, &tp2);
+                clock_gettime(CLOCK_METHOD, &tp2);
 				e_time_filtering += e_time(&tp1, &tp2);
                 trial_filtering_cost[q] = e_time(&tp1, &tp2);
 
@@ -2533,19 +2552,28 @@ int main(int argc, char *argv[])
                         #endif
                     }
                 #endif
-				clock_gettime(CLOCK_REALTIME, &tp3);
+				clock_gettime(CLOCK_METHOD, &tp3);
 				e_time_kNN += e_time(&tp2, &tp3);
 				e_time_total += e_time(&tp1, &tp3);
                 trial_search_cost[q] = e_time(&tp1, &tp3);
             }
-            printf("trial, f, query, found,  dist,  filtering, total_cost, average, stdev\n");
-            double sum = 0, sum2 = 0, ave, stdev;
+//          printf("trial, f, query, found,  dist,  filtering, total_cost, average, stdev\n");
+            double sum = 0, sum2 = 0, ave, stdev, cost_min = 1000, cost_max = 0;
             for(int q = 0; q < num_queries; q++) {
                 sum += trial_search_cost[q];
                 sum2 += trial_search_cost[q] * trial_search_cost[q];
+                if(trial_search_cost[q] < cost_min) cost_min = trial_search_cost[q];
+                if(trial_search_cost[q] > cost_max) cost_max = trial_search_cost[q];
             }
             ave = sum / num_queries;
             stdev = sqrt(sum2 / num_queries - ave * ave);
+            #ifdef PRINT_SEARCH_COST
+            fprintf(fp_search_cost, "trial, file, query_num, search_cost\n");
+            for(int q = 0; q < num_queries; q++) {
+                fprintf(fp_search_cost, "%d, %d, %d, %.4lf\n", trial, m, q, trial_search_cost[q]);
+            }
+            fprintf(fp_search_cost, "%d, %d, summary, %.4lf, %.4lf, %.4lf, %.4lf\n", trial, m, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
+            #endif
 
             #ifdef PRINT_KNN_RESULT
             for(int q = 0; q < num_queries; q++) {
@@ -2555,10 +2583,15 @@ int main(int argc, char *argv[])
 
             double recall_1 = recall_kNN_1(num_queries, correct_answer[m], top_k);
             double recall_k = recall_kNN(num_queries, correct_answer[m], top_k);
-            printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q), recall_1, %.1lf, found = %d, recall_k, %.1lf\n", e_time_filtering, e_time_kNN, e_time_total, ave * 1000, stdev * 1000, recall_1, found, recall_k);
+            printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q), recall_1, %.1lf, found = %d, recall_k, %.1lf\n", 
+                e_time_filtering, e_time_kNN, e_time_total, ave * 1000, stdev * 1000, recall_1, found, recall_k);
             printf("filtering cost: 1st = %.4lf, 2nd = %.4lf\n", filtering_cost_1st, filtering_cost_2nd);
             total_filtering += e_time_filtering; total_kNN += e_time_kNN, total_total += e_time_total, total_recall += recall_1;
-
+//          fprintf(fp_summary, "trial, query, nc1, nc2, recall@1, recall@30, filtering, 1st, 2nd, kNN, ave, stdev\n");
+            if(fp_summary != NULL) {
+                fprintf(fp_summary, "%d, %d, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf \n", 
+                    trial, m, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
+            }
             out_result_NN(result_filename, num_queries, correct_answer[m], top_k);
 
 //            strcpy(result_filename2, result_filename);
@@ -2602,6 +2635,14 @@ int main(int argc, char *argv[])
     free_pivot(pivot);
     free_smap_pivot(smap_pivot);
     free_bucket(bucket_ds);
+
+    if(fp_summary != NULL) {
+        fclose(fp_summary);
+    }
+
+    if(fp_search_cost != NULL) {
+        fclose(fp_search_cost);
+    }
 
 	return 0;
 }
