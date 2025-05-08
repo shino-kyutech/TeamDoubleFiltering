@@ -2439,10 +2439,10 @@ int main(int argc, char *argv[])
             double e_time_filtering = 0, e_time_kNN = 0, e_time_total = 0;
             reset_filtering_cost();
 
-            double trial_filtering_cost[num_queries];
+//          double trial_filtering_cost[num_queries];
             double trial_search_cost[num_queries];
-            int trial_found[num_queries];
-            dist_type trial_dist[num_queries];
+//          int trial_found[num_queries];
+//          dist_type trial_dist[num_queries];
 
 			int found = 0;
 //            double sum = 0, sum2 = 0;
@@ -2480,7 +2480,7 @@ int main(int argc, char *argv[])
 //fprintf(stderr, "double_filtering_by_sketch_enumeration_hamming_and_qpsmap OK\n");
                 clock_gettime(CLOCK_METHOD, &tp2);
 				e_time_filtering += e_time(&tp1, &tp2);
-                trial_filtering_cost[q] = e_time(&tp1, &tp2);
+//              trial_filtering_cost[q] = e_time(&tp1, &tp2);
 
 //for(int x = 0; x < num_candidates_1st; x++) {
 //    if(data_num_candidates[x] < 0 || data_num_candidates[x] > num_data) {
@@ -2542,8 +2542,8 @@ int main(int argc, char *argv[])
                         search_NN_on_ram(ftr_id, &qr[m][q], num_candidates_2nd, data_num_candidates, top_k[q]);
                         #endif
                         found += correct_answer[m][q].dist[0] == top_k[q]->buff[0].dist;
-                        trial_found[q] = correct_answer[m][q].dist[0] == top_k[q]->buff[0].dist;
-                        trial_dist[q] = top_k[q]->buff[0].dist;
+//                      trial_found[q] = correct_answer[m][q].dist[0] == top_k[q]->buff[0].dist;
+//                      trial_dist[q] = top_k[q]->buff[0].dist;
                     } else {
                         #ifndef FTR_ON_MAIN_MEMORY
                         search_kNN(&dh, &qr[m][q], num_candidates_2nd, data_num_candidates, top_k[q]);
@@ -2575,11 +2575,11 @@ int main(int argc, char *argv[])
             fprintf(fp_search_cost, "%d, %d, summary, %.4lf, %.4lf, %.4lf, %.4lf\n", trial, m, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
             #endif
 
-            #ifdef PRINT_KNN_RESULT
-            for(int q = 0; q < num_queries; q++) {
-                printf("%5d, %1d, %5d, %5d, %5d, %10.3le, %10.3le\n", trial, m, q, trial_found[q], trial_dist[q], trial_filtering_cost[q], trial_search_cost[q]);
-            }
-            #endif
+//            #ifdef PRINT_KNN_RESULT
+//            for(int q = 0; q < num_queries; q++) {
+//                printf("%5d, %1d, %5d, %5d, %5d, %10.3le, %10.3le\n", trial, m, q, trial_found[q], trial_dist[q], trial_filtering_cost[q], trial_search_cost[q]);
+//            }
+//            #endif
 
             double recall_1 = recall_kNN_1(num_queries, correct_answer[m], top_k);
             double recall_k = recall_kNN(num_queries, correct_answer[m], top_k);
