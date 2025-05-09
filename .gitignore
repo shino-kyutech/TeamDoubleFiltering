@@ -4,6 +4,7 @@
 *.h5
 *.ftr
 *.txt
+!df_parameters_w21_p192_1bit.txt
 !df_parameters_w21_p192_2bit.txt
 !Dockerfile
 result/*
@@ -11,3 +12,4 @@ result/*
 result1/
 pivot/*
 !pivot/*.csv
+!src
