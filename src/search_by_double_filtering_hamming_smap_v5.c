@@ -2348,7 +2348,7 @@ int main(int argc, char *argv[])
     #endif
 
     if(fp_summary != NULL) {
-        fprintf(fp_summary, "trial, query, nc1, nc2, recall@1, recall@30, filtering, 1st, 2nd, kNN, ave, stdev\n");
+        fprintf(fp_summary, "trial, query, nc1, nc2, recall@1, recall@30, filtering, 1st, 2nd, kNN, ave(ms/q), stdev, min(ms/q), max(min/q)\n");
     }
     int trial = 0;
     while(1) {
