@@ -45,7 +45,8 @@ COPY search_by_double_filtering_pubmed23.sh .
 COPY autoexec_all_pubmed23.sh .
 
 # ハイパーパラメタ（検索の1次候補数と2次候補数）をコピー
-COPY df_parameters_w21_p192_2bit.txt .
+COPY df_parameters_w21_p192_nc2_300.txt .
+COPY df_parameters_w21_p192_nc2_1000.txt .
 
 # 実行結果を格納するフォルダを作成
 RUN mkdir temp
