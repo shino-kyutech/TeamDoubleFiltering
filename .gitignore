@@ -4,11 +4,11 @@
 *.h5
 *.ftr
 *.txt
-!df_parameters_w21_p192_1bit.txt
-!df_parameters_w21_p192_2bit.txt
+!batch*.txt
 !Dockerfile
 result/*
 !result/.gitkeep
 result1/
 !pivot
 !src
+temp
