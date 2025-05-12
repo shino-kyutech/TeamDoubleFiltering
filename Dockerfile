@@ -40,6 +40,7 @@ RUN mkdir bkt
 
 # double-filteringで検索するためのスクリプト
 COPY search_by_double_filtering_pubmed23.sh .
+COPY search.sh .
 
 # 索引準備を行って検索プログラムを実行するためのスクリプト
 COPY autoexec_prepare_pubmed23.sh .
