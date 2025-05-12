@@ -2348,7 +2348,7 @@ int main(int argc, char *argv[])
     #endif
 
     if(fp_summary != NULL) {
-        fprintf(fp_summary, "trial, query, ftr_on, nc1, nc2, recall@1, recall@30, filtering, 1st, 2nd, kNN, ave(ms/q), stdev, min(ms/q), max(min/q)\n");
+        fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, recall@1, recall@30, filtering, 1st, 2nd, kNN, ave(ms/q), stdev, min(ms/q), max(min/q)\n");
     }
     int trial = 0;
     while(1) {
@@ -2589,11 +2589,11 @@ int main(int argc, char *argv[])
             total_filtering += e_time_filtering; total_kNN += e_time_kNN, total_total += e_time_total, total_recall += recall_1;
             if(fp_summary != NULL) {
                 #ifdef FTR_ON_MAIN_MEMORY
-                fprintf(fp_summary, "%d, %d, RAM, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf \n", 
-                    trial, m, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
+                fprintf(fp_summary, "%d, %d, %d, %d, RAM, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf \n", 
+                    trial, m, PJT_DIM, QUANTIZE_BIT, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
                 #else
-                fprintf(fp_summary, "%d, %d, SSD, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf \n", 
-                    trial, m, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
+                fprintf(fp_summary, "%d, %d, %d, %d, SSD, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf \n", 
+                    trial, m, PJT_DIM, QUANTIZE_BIT, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
                 #endif
             }
             out_result_NN(result_filename, num_queries, correct_answer[m], top_k);
