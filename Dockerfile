@@ -24,26 +24,35 @@ COPY pivot/ pivot/
 # COPY benchmark-dev-pubmed23.h5 .
 
 # h5からftrファイルを作成するスクリプト
-COPY autoexec_convert_dataset_pubmed23.sh .
+COPY autoexec_convert_dataset.sh .
 RUN mkdir ftr
 
 # h5から質問（otest）のftrを作成するスクリプト
-COPY autoexec_convert_otest_pubmed23.sh .
+COPY autoexec_convert_otest.sh .
 RUN mkdir query
 
 # h5から質問（otest）の正解情報（answerファイル）を作成するスクリプト
-COPY autoexec_gt_otest_to_answer_pubmed23.sh .
+COPY autoexec_gt_otest_to_answer.sh .
 
 # バケットファイルを作成するスクリプト
 COPY autoexec_make_bucket.sh .
 RUN mkdir bkt
 
 # double-filteringで検索するためのスクリプト
-COPY search_by_double_filtering_pubmed23.sh .
+COPY search_by_double_filtering.sh .
 COPY search.sh .
 
+# 索引準備を行うためのスクリプト
+COPY autoexec_prepare.sh .
+
+# pivot をコピー
+COPY batch/ batch/
+
+# 検索を実行し評価を行うためのスクリプト
+COPY autoexec_eval.sh .
+
 # 索引準備を行って検索プログラムを実行するためのスクリプト
-COPY autoexec_prepare_pubmed23.sh .
+COPY autoexec_all.sh .
 
 # ハイパーパラメタ（検索の1次候補数と2次候補数）をコピー
 COPY batch_nc2*.txt .
