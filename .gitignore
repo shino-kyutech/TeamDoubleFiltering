@@ -5,6 +5,7 @@
 *.ftr
 *.txt
 !batch
+!batch/*.txt
 !Dockerfile
 result/*
 !result/.gitkeep
