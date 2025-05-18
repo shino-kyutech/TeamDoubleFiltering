@@ -2250,6 +2250,7 @@ int main(int argc, char *argv[])
     // スケッチ順に特徴データを読み込むと，ランダムアクセス的になって遅くなるかもしれないので，
 	// いったん，元の順序のままで読み込んで，圧縮形式のSMAPに変換して，その後で並べ替える．
     for(int i = 0; i < num_data; i++) { data_num_org[i] = i; } // 特徴データを元の順序で読み込むためのデータ番号の配列としても使用する．
+    for(int i = 0; i < num_data; i++) { data_num_candidates[i] = i; } // 配列をRAMに置くためのダミーアクセス．
 
     struct timespec tread1, tread2;
     clock_gettime(CLOCK_METHOD, &tread1);
