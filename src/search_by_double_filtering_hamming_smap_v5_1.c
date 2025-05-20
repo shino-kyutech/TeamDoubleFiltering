@@ -495,9 +495,6 @@ void init_space_for_double_filtering(int num_data)
     int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
     if(ivl == NULL) {
         ivl = new_interval_list(nnt, num_data);
-        for(int i = 0; i < num_data; i+= 1024) {
-            ivl
-        }
     }
     if(que == NULL) {
         que = MALLOC(sizeof(struct_que_c2_n));
