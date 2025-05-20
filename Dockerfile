@@ -56,6 +56,8 @@ COPY autoexec_all.sh .
 
 # ハイパーパラメタ（検索の1次候補数と2次候補数）をコピー
 COPY batch_nc2*.txt .
+COPY df_parameters_w21_p192_nc2_300.txt .
+COPY df_parameters_w21_p192_nc2_1000.txt .
 
 # 実行結果を格納するフォルダを作成
 RUN mkdir temp
