@@ -41,6 +41,7 @@ RUN mkdir bkt
 # double-filteringで検索するためのスクリプト
 COPY search_by_double_filtering.sh .
 COPY search.sh .
+COPY search_with_log.sh .
 
 # 索引準備を行うためのスクリプト
 COPY autoexec_prepare.sh .

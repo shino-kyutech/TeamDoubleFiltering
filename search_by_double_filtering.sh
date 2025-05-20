@@ -39,7 +39,7 @@ qr_dir=./query
 pv_dir=./pivot
 bk_dir=./bkt
 
-pr=search_by_double_filtering_hamming_smap_v5
+pr=search_by_double_filtering_hamming_smap_v5_1
 
 #set -x
 
