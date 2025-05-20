@@ -1748,6 +1748,11 @@ interval_list *new_interval_list(unsigned int nt, unsigned int size)
 	il->lg 		= MALLOC(sizeof(unsigned int) * nt);
 	il->list 	= MALLOC(sizeof(interval) * nt * size);
 
+	il->lg[0] = 0;
+	for(int i = 0; i < nt; i++) {
+		il->list[i * size].run = 0;
+	}
+
 	return il;
 }
 

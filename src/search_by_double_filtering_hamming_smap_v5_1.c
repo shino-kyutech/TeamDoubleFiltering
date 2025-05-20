@@ -484,7 +484,30 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
         #endif
     #endif
 }
-#else 
+#else
+
+#ifdef USE_INTERVAL
+static interval_list *ivl = NULL;
+static struct_que_c2_n *que = NULL;
+
+void init_space_for_double_filtering(int num_data)
+{
+    int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
+    if(ivl == NULL) {
+        ivl = new_interval_list(nnt, num_data);
+        for(int i = 0; i < num_data; i+= 1024) {
+            ivl
+        }
+    }
+    if(que == NULL) {
+        que = MALLOC(sizeof(struct_que_c2_n));
+        for(int i = 0; i < QSIZE; i += 1024) {
+            que->element[i].key = 0;
+            que->details[i].sk = 0;
+        }
+    }
+}
+#endif
 // Double-Filtering（multi-thread）
 // 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
 // 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
@@ -530,12 +553,12 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
         // ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする． 
         // まず，filtering_by_sketch_enumeration_hamming_interval を用いて，フィルタリングを行い，interval_list の形式で候補を求める．
         // 1st filtering の結果を用いて，2nd filtering を qpsmap を用いて行う．
-    	static interval_list *ivl = NULL;
-        if(ivl == NULL) {
-    	    ivl = new_interval_list(nnt, num_candidates_1st);
-        } else if(ivl->size < num_candidates_1st) {
-            realloc_interval_list(ivl, num_candidates_1st);
-        }
+//    	static interval_list *ivl = NULL;
+//        if(ivl == NULL) {
+//    	    ivl = new_interval_list(nnt, num_candidates_1st);
+//        } else if(ivl->size < num_candidates_1st) {
+//            realloc_interval_list(ivl, num_candidates_1st);
+//        }
         static int first = 1;
         #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
             if(first) {fprintf(stderr, "FILTERING_BY_SKETCH_ENUMERATION_HAMMING, USE_INTERVAL\n"); first = 0;}
@@ -543,14 +566,14 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
             if(nc == 0) {fprintf(stderr, "nc = %d, num_candidates_1st = %d\n", nc, num_candidates_1st); getchar(); }
         #elif defined(FILTERING_BY_SKETCH_ENUMERATION_C2N)
             if(first) {fprintf(stderr, "FILTERING_BY_SKETCH_ENUMERATION_C2N, USE_INTERVAL\n"); first = 0;}
-		    static struct_que_c2_n *que = NULL;
-            if(que == NULL) {
-                que = MALLOC(sizeof(struct_que_c2_n));
-                for(int i = 0; i < QSIZE; i += 1024) {
-                    que->element[i].key = 0;
-                    que->details[i].sk = 0;
-                }
-            }
+//		    static struct_que_c2_n *que = NULL;
+//            if(que == NULL) {
+//                que = MALLOC(sizeof(struct_que_c2_n));
+//                for(int i = 0; i < QSIZE; i += 1024) {
+//                    que->element[i].key = 0;
+//                    que->details[i].sk = 0;
+//                }
+//            }
             int nc = filtering_by_sketch_enumeration_c2_n_interval(qs, bucket, que, ivl, num_candidates_1st);
         #else
             #error "FILTERING_BY_SKETCH_ENUMERATION_(HAMMING | C2N) should be defined"
@@ -2386,7 +2409,7 @@ int main(int argc, char *argv[])
         make_table_for_query_p(q_smap, table, offset, slice, 0.1 * SCORE_P_2ND); // 射影像を用いて，射影距離計算の表 table を作成する．
         make_table_for_packed_data(table, table_for_packed, offset, slice); // 圧縮表現データのための表 table_for_packed を作成する．
     }
-    
+
     if(fp_summary != NULL) {
         fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, recall@1, recall@30, filtering, 1st(sec), 2nd(sec), kNN(sec), ave(ms/q), stdev(ms/q), min(ms/q), max(ms/q)\n");
     }
@@ -2462,6 +2485,7 @@ int main(int argc, char *argv[])
         if(num_candidates_2nd <= 30) num_candidates_2nd = 30;
         fprintf(stderr, "num_data = %d, num_candidates_1st = %d, num_candidates_2nd = %d\n", num_data, num_candidates_1st, num_candidates_2nd);
         double total_filtering = 0, total_kNN = 0, total_total = 0, total_recall = 0;
+        init_space_for_double_filtering(num_data);
 
         for(int m = 0; m < num_query_files; m++) {
 			use_system("VmSize");
