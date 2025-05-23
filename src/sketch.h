@@ -623,6 +623,9 @@ int answer_check_interval(struct_bucket *bucket, answer_type *ans, interval_list
 int answer_check(answer_type *ans, int num_c, int candidate[], kNN_buffer *top_k);
 void search_kNN(dataset_handle *dh, query_type *qr, int num_c, int candidate[], kNN_buffer *top_k);
 void search_NN(dataset_handle *dh, query_type *qr, int num_c, int candidate[], kNN_buffer *top_k);
+#ifdef STATIC_KNN_BUFFER_FOR_SEARCH
+void init_search_kNN_on_ram(int num_k);
+#endif
 void search_kNN_on_ram(struct_ftr_id ftr_id[], query_type *qr, int num_c, int candidate[], kNN_buffer *top_k);
 void search_NN_on_ram(struct_ftr_id ftr_id[], query_type *qr, int num_c, int candidate[], kNN_buffer *top_k);
 

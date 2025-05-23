@@ -51,6 +51,7 @@ COPY batch/ batch/
 
 # 検索を実行し評価を行うためのスクリプト
 COPY autoexec_eval.sh .
+COPY autoexec_eval_4g.sh .
 
 # 索引準備を行って検索プログラムを実行するためのスクリプト
 COPY autoexec_all.sh .

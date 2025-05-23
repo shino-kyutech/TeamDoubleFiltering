@@ -1750,7 +1750,7 @@ interval_list *new_interval_list(unsigned int nt, unsigned int size)
 
 	il->lg[0] = 0;
 	for(int i = 0; i < nt; i++) {
-		il->list[i * size].run = 0;
+		il->list[i * size].start = 0;
 	}
 
 	return il;
@@ -11328,32 +11328,6 @@ dist_type merge_kNN_buffer(kNN_buffer *b, kNN_buffer *pool[], int n)
 	return b->k_nearest;
 }
 
-/*
-dist_type merge_kNN_buffer(kNN_buffer *b, kNN_buffer *pool[], int n)
-{
-	int i, head[n], k = b->k, m, min_t;
-	
-	for(m = 0; m < n; m++) {
-		head[m] = 0;
-	}
-
-	for(i = 0; i < k; i++) {
-		b->buff[i].dist = INT_MAX;
-		min_t = 0;
-		for(m = 0; m < n; m++) {
-			if(pool[m]->num > head[m] && pool[m]->buff[head[m]].dist < b->buff[i].dist) {
-				b->buff[i] = pool[m]->buff[head[m]];
-				min_t = m;
-			}
-		}
-		head[min_t]++;
-	}
-	b->num = k;
-	b->k_nearest = b->buff[k - 1].dist;
-	return b->k_nearest;
-}
-*/
-
 answer_type *get_kNN_buffer(kNN_buffer *b, int i)
 {
 	return &(b->buff[i]);
@@ -11548,6 +11522,73 @@ void search_kNN(dataset_handle *dh, query_type *qr, int num_candidates, int data
 	#endif
 }
 
+#ifdef STATIC_KNN_BUFFER_FOR_SEARCH
+
+static kNN_buffer *b_pool[NUM_THREADS] = {NULL};
+
+void init_search_kNN_on_ram(int num_k) 
+{
+	if(b_pool[0] == NULL) {
+		for(int t = 0; t < NUM_THREADS; t++) {
+			if((b_pool[t] = new_kNN_buffer(num_k)) == NULL) {
+				fprintf(stderr, "cannot allocate new kNN buffer\n");
+				exit(0);
+			}
+			for(int i = 0; i < num_k; i++) {
+				b_pool[t]->buff[i].data_num = 0;
+			}
+		}
+	}
+}
+
+// 解候補から top-K を求める（第２段階検索）特徴データは配列に読み込んだものを用いる
+void search_kNN_on_ram(struct_ftr_id ftr_id[], query_type *qr, int num_candidates, int data_num_of_candidate[], kNN_buffer *top_k)
+{
+	#if defined(_OPENMP) && NUM_THREADS > 1
+	omp_set_num_threads(num_candidates < NUM_THREADS ? num_candidates : NUM_THREADS);
+	int num_k = top_k->k;
+	int nt = omp_get_max_threads(); 	// スレッド数を求める
+	for(int t = 0; t < nt; t++) {
+		make_empty_kNN_buffer(b_pool[t]);
+	}
+	#else
+	make_empty_kNN_buffer(top_k);
+	#endif
+
+	SET_DIST(qr->ftr); // 距離はすべて質問からになるので，片方を質問に固定
+	#if defined(_OPENMP) && NUM_THREADS > 1
+	#pragma omp parallel for
+	#endif
+	for(int i = 0; i < num_candidates; i++) {
+		int k_nearest = INT_MAX;
+		#if defined(_OPENMP) && NUM_THREADS > 1
+		int t = omp_get_thread_num();
+		kNN_buffer *b = b_pool[t];
+		#else
+		kNN_buffer *b = top_k;
+		#endif
+		answer_type ans;
+		ans.data_num = data_num_of_candidate[i];
+		ans.dist = DISTANCE_22(ftr_id[data_num_of_candidate[i]].ftr);
+		#ifdef ANSWER_WITH_DATA_ID
+		ans.data_id = 0;
+		#endif
+		if(ans.dist < k_nearest) {
+			k_nearest = push_kNN_buffer(&ans, b);
+		}
+	}
+
+	#if defined(_OPENMP) && NUM_THREADS > 1
+		#pragma omp parallel for
+		for(int t = 0; t < nt; t++) {
+			flush_kNN_buffer(b_pool[t]);
+		}
+		merge_kNN_buffer(top_k, b_pool, nt);
+	#else
+		k_nearest = final_flush_kNN_buffer(top_k);
+	#endif
+}
+#else
 // 解候補から top-K を求める（第２段階検索）特徴データは配列に読み込んだものを用いる
 void search_kNN_on_ram(struct_ftr_id ftr_id[], query_type *qr, int num_candidates, int data_num_of_candidate[], kNN_buffer *top_k)
 {
@@ -11556,7 +11597,6 @@ void search_kNN_on_ram(struct_ftr_id ftr_id[], query_type *qr, int num_candidate
 	int num_k = top_k->k;
 	int nt = omp_get_max_threads(); 	// スレッド数を求める
 	kNN_buffer *b_pool[nt];
-	dist_type k_nearest[nt];
 	for(int t = 0; t < nt; t++) {
 		if((b_pool[t] = new_kNN_buffer(num_k)) == NULL) {
 			fprintf(stderr, "cannot allocate new kNN buffer\n");
@@ -11564,28 +11604,20 @@ void search_kNN_on_ram(struct_ftr_id ftr_id[], query_type *qr, int num_candidate
 		}
 	}
 	#else
-	dist_type k_nearest;
+	make_empty_kNN_buffer(top_k);
 	#endif
 
 	SET_DIST(qr->ftr); // 距離はすべて質問からになるので，片方を質問に固定
 	#if defined(_OPENMP) && NUM_THREADS > 1
-	for(int t = 0; t < nt; t++) {
-		k_nearest[t] = make_empty_kNN_buffer(b_pool[t]);
-//		if(dh->ftr_on == SECONDARY_MEMORY) dh->mf[t]->read_in = 0;
-	}
 	#pragma omp parallel for
-	#else
-	k_nearest = make_empty_kNN_buffer(top_k);
-//	if(dh->ftr_on == SECONDARY_MEMORY) dh->mf[0]->read_in = 0;
 	#endif
 	for(int i = 0; i < num_candidates; i++) {
+		int k_nearest = INT_MAX;
 		#if defined(_OPENMP) && NUM_THREADS > 1
 		int t = omp_get_thread_num();
 		kNN_buffer *b = b_pool[t];
-//		if(dh->ftr_on == SECONDARY_MEMORY) mf = dh->mf[t];
 		#else
 		kNN_buffer *b = top_k;
-//		if(dh->ftr_on == SECONDARY_MEMORY) mf = dh->mf[0];
 		#endif
 		answer_type ans;
 		ans.data_num = data_num_of_candidate[i];
@@ -11593,37 +11625,25 @@ void search_kNN_on_ram(struct_ftr_id ftr_id[], query_type *qr, int num_candidate
 		#ifdef ANSWER_WITH_DATA_ID
 		ans.data_id = 0;
 		#endif
-		//		if(dh->ftr_on == MAIN_MEMORY) {
-//			ans.dist = DISTANCE_22(dh->ds->ftr_id[data_num_of_candidate[i]].ftr);
-//		} else {
-//			struct_ftr_id *ftr_id_p;
-//			ftr_id_p = get_next_ftr_id_from_multi_ftr(mf, data_num_of_candidate, i, num_candidates);
-//			ans.dist = DISTANCE_22(ftr_id_p->ftr);
-//		}
-		#if defined(_OPENMP) && NUM_THREADS > 1
-		if(ans.dist < k_nearest[t]) {
-			k_nearest[t] = push_kNN_buffer(&ans, b);
-		}
-		#else
 		if(ans.dist < k_nearest) {
 			k_nearest = push_kNN_buffer(&ans, b);
 		}
-		#endif
 	}
 
 	#if defined(_OPENMP) && NUM_THREADS > 1
 		#pragma omp parallel for
 		for(int t = 0; t < nt; t++) {
-			k_nearest[t] = flush_kNN_buffer(b_pool[t]);
+			flush_kNN_buffer(b_pool[t]);
 		}
 		merge_kNN_buffer(top_k, b_pool, nt);
 		for(int t = 0; t < nt; t++) {
 			free_kNN_buffer(b_pool[t]);
 		}
 	#else
-		k_nearest = final_flush_kNN_buffer(top_k);
+		final_flush_kNN_buffer(top_k);
 	#endif
 }
+#endif
 
 // answer_check と同様．ただし，解候補をデータ番号のリストではなく，区間リストで与える．
 // 区間リストからデータ番号を求めるために，バケットを与える．

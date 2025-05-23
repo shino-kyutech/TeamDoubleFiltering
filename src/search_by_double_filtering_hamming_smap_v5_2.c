@@ -37,15 +37,6 @@
 #include <unistd.h>
 #include <sys/resource.h>
 
-// #define SECOND_FILTERING_KNN_BUFFER
-// #define SECOND_FILTERING_SELECT
-// KNN_BUFFER と SELECT では，速度と精度の両面で KNN_BUFFER の方が良いようだ．
-
-// #define SKETCH_ENUMERATION_ONLY
-
-// #define PARALLEL_ENUM 3
-// #define USE_PACKED_3BIT
-
 #ifdef UMPACKED_SMAP
 // 非圧縮形式 qpsmap 射影像を用いる. Single-threadのみ
 #error "This verson is not applicable for UMPACKED_SMAP."
@@ -486,22 +477,50 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 }
 #else
 
-#ifdef USE_INTERVAL
+#ifdef STATIC_DF_WORK
 static interval_list *ivl = NULL;
+static int intial_ivl_size_1st = 0;
+static int intial_ivl_size_2nd = 0;
 static struct_que_c2_n *que = NULL;
+static answer_type *ans_buff = NULL;
+static kNN_buffer *buff_p[NUM_THREADS] = {NULL};
 
-void init_space_for_double_filtering(int num_data)
+// size_1st = 1次フィルタリングの候補リストの大きさ（区間数）の最大値（interval_list の大きさ）
+// size_2nd = 2次フィルタリンツが求める候補数の最大値（kNN_bufferの大きさ）
+void init_space_for_double_filtering(int size_1st, int size_2nd)
 {
     int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
-    if(ivl == NULL) {
-        ivl = new_interval_list(nnt, num_data);
+    if(ivl != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: ivl != NULL\n");
+        exit(1);
     }
-    if(que == NULL) {
-        que = MALLOC(sizeof(struct_que_c2_n));
-        for(int i = 0; i < QSIZE; i += 1024) {
-            que->element[i].key = 0;
-            que->details[i].sk = 0;
-        }
+    if(ans_buff != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: ans_buff[0] != NULL\n");
+        exit(1);
+    }
+    if(buff_p[0] != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: buff_p[0] != NULL\n");
+        exit(1);
+    }
+    if(que != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: que != NULL\n");
+        exit(1);
+    }
+    ivl = new_interval_list(NUM_THREADS, size_1st);
+    ivl->lg[0] = 0;
+    ivl->list[0].start = 0;
+    intial_ivl_size_1st = size_1st;
+    intial_ivl_size_2nd = size_2nd;
+    for(int t = 0; t < NUM_THREADS; t++) {
+        buff_p[t] = new_kNN_buffer(size_2nd);
+        buff_p[t]->buff[0].data_num = 0;
+    }
+    ans_buff = MALLOC(sizeof(answer_type) * size_2nd * NUM_THREADS);
+    ans_buff[0].data_num = 0;
+    que = MALLOC(sizeof(struct_que_c2_n));
+    for(int i = 0; i < QSIZE; i += 1024) {
+        que->element[i].key = 0;
+        que->details[i].sk = 0;
     }
 }
 #endif
@@ -533,7 +552,6 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
     #if defined(FILTERING_BY_SKETCH_ENUMERATION_C2N) && PARA_ENUM_INF == 0
     n = PARALLEL_ENUM;
     nnt = (1 << PARALLEL_ENUM);
-//    fprintf(stderr, "DF: c2n (single-thread), other (%d-thread)\n", nnt); getchar();
     #endif
 
 	int nt = (1 << n); // スレッド数
@@ -543,19 +561,25 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
     struct timespec tp1, tp2, tp3;
 
     #ifdef USE_INTERVAL
-//      fprintf(stderr, "df: PARALLEL_ENUM = %d, PARA_ENUM_INF = %d\n", PARALLEL_ENUM, PARA_ENUM_INF); getchar();
-//        struct timespec tp1, tp2, tp3;
         clock_gettime(CLOCK_METHOD, &tp1);
         // Interval list を用いるときは，
         // ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする． 
         // まず，filtering_by_sketch_enumeration_hamming_interval を用いて，フィルタリングを行い，interval_list の形式で候補を求める．
         // 1st filtering の結果を用いて，2nd filtering を qpsmap を用いて行う．
-//    	static interval_list *ivl = NULL;
-//        if(ivl == NULL) {
-//    	    ivl = new_interval_list(nnt, num_candidates_1st);
-//        } else if(ivl->size < num_candidates_1st) {
-//            realloc_interval_list(ivl, num_candidates_1st);
-//        }
+        #ifndef STATIC_DF_WORK
+        static interval_list *ivl = NULL;
+        if(ivl == NULL) {
+    	    ivl = new_interval_list(nnt, num_candidates_1st);
+        } else if(ivl->size < num_candidates_1st) {
+            realloc_interval_list(ivl, num_candidates_1st);
+        }
+        #else
+        if(num_candidates_1st > intial_ivl_size_1st) {
+            fprintf(stderr, "too large nc1 = %d > %d\n", num_candidates_1st, intial_ivl_size_1st);
+            exit(1);
+        }
+        ivl->size = num_candidates_1st;
+        #endif
         static int first = 1;
         #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
             if(first) {fprintf(stderr, "FILTERING_BY_SKETCH_ENUMERATION_HAMMING, USE_INTERVAL\n"); first = 0;}
@@ -563,14 +587,16 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
             if(nc == 0) {fprintf(stderr, "nc = %d, num_candidates_1st = %d\n", nc, num_candidates_1st); getchar(); }
         #elif defined(FILTERING_BY_SKETCH_ENUMERATION_C2N)
             if(first) {fprintf(stderr, "FILTERING_BY_SKETCH_ENUMERATION_C2N, USE_INTERVAL\n"); first = 0;}
-//		    static struct_que_c2_n *que = NULL;
-//            if(que == NULL) {
-//                que = MALLOC(sizeof(struct_que_c2_n));
-//                for(int i = 0; i < QSIZE; i += 1024) {
-//                    que->element[i].key = 0;
-//                    que->details[i].sk = 0;
-//                }
-//            }
+            #ifndef STATIC_DF_WORK
+		    static struct_que_c2_n *que = NULL;
+            if(que == NULL) {
+                que = MALLOC(sizeof(struct_que_c2_n));
+                for(int i = 0; i < QSIZE; i += 1024) {
+                    que->element[i].key = 0;
+                    que->details[i].sk = 0;
+                }
+            }
+            #endif
             int nc = filtering_by_sketch_enumeration_c2_n_interval(qs, bucket, que, ivl, num_candidates_1st);
         #else
             #error "FILTERING_BY_SKETCH_ENUMERATION_(HAMMING | C2N) should be defined"
@@ -583,10 +609,20 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
         #ifdef SECOND_FILTERING_KNN_BUFFER
            // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
             int num_data_2nd = num_candidates_2nd; // スレッドに分けても同じ候補数を選ばせる
+            #ifndef STATIC_DF_WORK
             answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_data_2nd * nt); // 最後に各スレッドが求めてものを一つにまとめて，quick_selectする．
             kNN_buffer *buff_p[nt]; // kNN_buffer のプール（それぞれのスレッドで用いる）
             for(int t = 0; t < nt; t++) { buff_p[t] = new_kNN_buffer(num_data_2nd); }
-//            fprintf(stderr, "kNN buffer OK: nt = %d, ivl->nt = %d\n", nt, ivl->nt);
+            #else
+            if(num_data_2nd > intial_ivl_size_2nd) {
+                fprintf(stderr, "too large nc1 = %d > %d\n", num_candidates_1st, intial_ivl_size_1st);
+                exit(1);
+            }
+            for(int t = 0; t < nt; t++) {
+                make_empty_kNN_buffer(buff_p[t]);
+                buff_p[t]->k = num_data_2nd;
+            }
+            #endif
         #elif defined(SECOND_FILTERING_SELECT)
             // 1st filtering で求めた num_candidates_1st 個の候補のデータ番号と qpsmap 射影距離の対を配列に格納し，最後に quick_select_k_answer で num_candidates_2nd 個を選択する．
 //fprintf(stderr, "MALLOC for ans_buff: size = %d\n", sizeof(answer_type) * num_candidates_1st * nt);
@@ -603,12 +639,10 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
             int k_th[nt];
         #endif
 
-// 2nd filtering ...
+        // 2nd filtering ...
         #pragma omp parallel
-//        for(int t = 0; t < nt; t++)
         {
             int t = omp_get_thread_num(); // スレッド番号
-//            fprintf(stderr, "t = %d\n", t);
             int m = 0; // 列挙したスケッチ数（パターン番号）
             int k = 0; // 1st filtering で求めたデータ数
             #ifdef SECOND_FILTERING_KNN_BUFFER
@@ -621,15 +655,13 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
             #else
                 int *buff = data_num + t * num_data_1st;
             #endif
-//            #define FACTOR_INF3 0.95
+
             #ifndef THREAD_PLUS
             int tt = t;
             #elif PARA_ENUM_INF > 0
             for(int tt = t * (1 << THREAD_PLUS); tt < (t + 1) * (1 << THREAD_PLUS); tt++) 
             #else
             int tt = t;
-//            fprintf(stderr, "HERE: t = %d, n = %d, THREAD_PLUS = %d\n", t, n, THREAD_PLUS);
-//            for(int tt = t * (1 << (n - THREAD_PLUS)); tt < (t + 1) * (1 << (n - THREAD_PLUS)); tt++) 
             #endif
             {
                 interval *list = ivl->list + tt * ivl->size;
@@ -640,9 +672,6 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
                         // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
                         dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
                         answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-//if(bucket->idx[j] < 0 || bucket->idx[j] >= bucket->num_data) {
-//    fprintf(stderr, "(before push) invalid j = %d or invalid idx = %d\n", j, bucket->idx[j]);
-//}
                         #ifdef SECOND_FILTERING_KNN_BUFFER
                         push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
                         #elif defined(SKETCH_ENUMERATION_ONLY)
@@ -667,8 +696,6 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
             k_th[t] = k;
             #endif
         }
-
-//fprintf(stderr, "second filtering OK\n");
 
     #else
         clock_gettime(CLOCK_METHOD, &tp1);
@@ -810,16 +837,16 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 
     #if defined(USE_INTERVAL) || defined(FILTERING_BY_SKETCH_ENUMERATION_HAMMING)
     #if defined(SECOND_FILTERING_KNN_BUFFER)
+        #ifndef STATIC_DF_WORK
         for(int t = 0; t < nt; t++) { free_kNN_buffer(buff_p[t]); }
+        #endif
         quick_select_k_answer(ans_buff, 0, num_data_2nd * nt - 1, num_candidates_2nd);
         for(int i = 0; i < num_candidates_2nd; i++) {
-//fprintf(stderr, "%12d", ans_buff[i].data_num);
             data_num[i] = ans_buff[i].data_num;
-//            if(data_num[i] < 0 || data_num[i] >= bucket->num_data) {
-//                fprintf(stderr, "(after quick_select_k_anser) invalid data_num = %d\n", data_num[i]);
-//            }
         }
+        #ifndef STATIC_DF_WORK
         FREE(ans_buff, sizeof(answer_type) * num_data_2nd * nt);
+        #endif
         clock_gettime(CLOCK_METHOD, &tp3);
         filtering_cost_1st += e_time(&tp1, &tp2);
         filtering_cost_2nd += e_time(&tp2, &tp3);
@@ -879,1239 +906,7 @@ fprintf(stderr, "selected = %d, sel = %d\n", selected, sel); getchar();
     #endif
 }
 
-#ifdef ALTERNATIVE_5
-typedef struct {
-    struct_que_c2_n *que;
-    struct_query_sketch *qs;
-    int low_bit;
-    int num;
-} struct_enumerate_handle;
 
-void start_enumeration(struct_enumerate_handle *eh) {
-	eh->num = 0;
-	if(eh->que == NULL) {
-		eh->que = MALLOC(sizeof(struct_que_c2_n));
-	}
-	make_empty_que_c2_n(eh->que);
-}
-
-sketch_type get_next(struct_enumerate_handle *eh) {
-	static QUE_c2 qu, qu2;
-	int *bd = eh->qs->bd, *bd_idx = eh->qs->idx;
-	int n = eh->low_bit;
-//fprintf(stderr, "get_next: num = 0\n")
-	switch(eh->num) {
-	case 0:
-		eh->num = 1;
-//        fprintf(stderr, "return\n");
-		return eh->qs->sketch;
-	case 1:
-		eh->num = 2;
-		return eh->qs->sketch ^ (1 << bd_idx[n]);
-	case 2:
-		eh->num = 3;
-		qu.cursor = new_que_e2_n(eh->que);
-		qu.key = bd[bd_idx[n + 1]];
-		eh->que->details[qu.cursor].sk = eh->qs->sketch ^ (1 << bd_idx[n + 1]);
-		eh->que->details[qu.cursor].pt = 1 << 1; // pt = "0...00000010"
-		enq_c2_n(&qu, eh->que);
-		deq_c2_n(&qu, eh->que);
-		return eh->que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-	case 3:
-		switch(eh->que->details[qu.cursor].pt & 15) {
-		case 0: // X0000 -> enq(X0001) and enq(Y10^{m+1}) if X0000 = Y010^m
-		case 8: // X1000 -> enq(X1001) and enq(Y10^{m+1}) if X0000 = Y010^m
-			{
-				int m = lsb_pos(eh->que->details[qu.cursor].pt);
-				if(m > 0 && n + m < PJT_DIM - 1 && !(eh->que->details[qu.cursor].pt & (1 << (m + 1)))) {
-					// Y010^m -> Y10^{m+1}
-					qu2.cursor = new_que_e2_n(eh->que);
-					qu2.key = qu.key + bd[bd_idx[n + m + 1]] - bd[bd_idx[n + m]];
-					eh->que->details[qu2.cursor].sk = (eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + m + 1])) ^ (1 << bd_idx[n + m]);
-					eh->que->details[qu2.cursor].pt = eh->que->details[qu.cursor].pt + (1 << m);
-					// Y010^m -> Y010^{m-1}1
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, eh->que);
-					enq_c2_n(&qu2, eh->que);
-				} else {
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, eh->que);
-				}
-			}
-			break;
-		case 4:  // X0100 -> enq(X0101) and enq(X1000)
-			// X1000
-			qu2.cursor = new_que_e2_n(eh->que);
-			qu2.key = qu.key + bd[bd_idx[n + 3]] - bd[bd_idx[n + 2]];
-			eh->que->details[qu2.cursor].sk = (eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 3])) ^ (1 << bd_idx[n + 2]);
-			eh->que->details[qu2.cursor].pt = eh->que->details[qu.cursor].pt + 4;
-			// X0101
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-			eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, eh->que);
-			enq_c2_n(&qu2, eh->que);
-			break;
-		case 1:  // X0001 -> enq(X0010)
-		case 5:  // X0101 -> enq(X0110)
-		case 9:  // X1001 -> enq(X1010)
-		case 13: // X1101 -> enq(X1110) (note that X <> 0, because 0...00 and 0...01 is already processed before while loop)
-			qu.key = qu.key + bd[bd_idx[n + 1]] - bd[bd_idx[n + 0]];
-			eh->que->details[qu.cursor].sk = (eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 1])) ^ (1 << bd_idx[n + 0]);
-			eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, eh->que);
-			break;
-		case 2:  // X0010 -> enq(X0011) and enq(X0100)
-		case 10: // X1010 -> enq(X1011) and enq(X1100)
-			// X0100 and X1100
-			qu2.cursor = new_que_e2_n(eh->que);
-			qu2.key = qu.key +  bd[bd_idx[n + 2]] -  bd[bd_idx[n + 1]];
-			eh->que->details[qu2.cursor].sk = (eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 2])) ^ (1 << bd_idx[n + 1]);
-			eh->que->details[qu2.cursor].pt = eh->que->details[qu.cursor].pt + 2;
-			// X0011 and X1011
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, eh->que);
-			enq_c2_n(&qu2, eh->que);
-			break;
-		case 6:  // X0110 -> enq(X0111)
-		case 12: // X1100 -> enq(X1101)
-		case 14: // X1110 -> enq(10111)
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, eh->que);
-			break;
-		case 3:  // X0011
-		case 7:  // X0111
-		case 11: // X1011
-		case 15: // X1111 -> nothing to do
-			break;
-		}
-		deq_c2_n(&qu, eh->que);
-		return eh->que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-	}
-    return 0;
-}
-
-// Alternative-Filtering（multi-thread）
-// 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
-// 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
-// 1st と 2nd を交互に実行する
-int alternative_filtering_by_sketch_enumeration_hamming_and_qpsmap(
-	struct_query_sketch *qs, 
-    #if defined(USE_PACKED_3BIT) || defined(USE_PACKED_6BIT)
-	unsigned int table_for_packed[][1 << QUANTIZE_BIT * TABLE_UNIT], 
-    #else
-	unsigned int table_for_packed[][256], 
-    #endif
-	struct_bucket *bucket, 
-	tiny_int packed_qpsmap_data[][PACKED_QPSMAP_SIZE], 
-	int data_num[], int num_candidates_1st, int num_candidates_2nd)
-{
-    // THREAD_PLUS > 0 には未対応
-	int n = PARA_ENUM_INF;
-	int nt = (1 << n); // スレッド数
-	#ifdef _OPENMP
-	omp_set_num_threads(nt);
-	#endif
-    // INTERVAL を使用しない（すぐに展開して2nd-filteringに渡すので）
-
-    static struct_que_c2_n *que = NULL;
-    if(que == NULL) que = MALLOC(sizeof(struct_que_c2_n));
-
-	static int first = 1;
-	if(first) {
-		#ifndef WITHOUT_IDX
-		fprintf(stderr, "alternative(5)_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITH_IDX. \n", nt);
-		#else
-		fprintf(stderr, "alternative(5)_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITHOUT_IDX. \n", nt);
-		#endif
-		first = 0;
-	}
-
-//	sketch_type s;
-//	QUE_c2 qu, qu2;
-	int *bd_idx = qs->idx;
-	int *bkt = bucket->bkt;
-
-	sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-	// このパターンの順序は，D_INF 用の grey code 生成ルールを用いて準備する
-	mu_thread[0] = 0;
-	for(int t = 0; t < nt - 1; t++) {
-		mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-	}
-	// 下位 n ビットは，スレッド毎に割り当てた mu_thread[t] との XOR で求める．
-	// それ以降の PJT_DIM - n ビットのみを変化させた，スケッチを列挙する（下位 n ビットは，質問のまま）
-
-	static interval_list *ivl = NULL;
-	if(ivl == NULL) {
-		ivl = new_interval_list(nt, num_candidates_1st);
-	} else if(ivl->size < num_candidates_1st) {
-		realloc_interval_list(ivl, num_candidates_1st);
-	}
-
-    // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
-    // スレッドに分けても同じ候補数を選ばせる
-    answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_candidates_2nd * nt); // 最後に各スレッドが求めたものを一つにまとめて，quick_selectする．
-    kNN_buffer *buff_p[nt];
-    for(int t = 0; t < nt; t++) { buff_p[t] = new_kNN_buffer(num_candidates_2nd); }
-
-	sketch_type mu_common[FACTOR_INF];			// 一回の処理で求めるFACTOR_INF個の共通マスクの配列
-	sketch_type mu_common2[FACTOR_INF];			// 一回の処理で求めるFACTOR_INF個の共通マスクの配列のコピー
-
-	// まず，single-threadで最初のFACTOR_INF個の共通パターンを列挙し，0-分割のdouble-filteringを先行する．
-	static struct_enumerate_handle eh = { NULL, NULL, 0, 0 };
-	eh.low_bit = n; 
-    eh.qs = qs;
-
-	start_enumeration(&eh);
-
-	// まず，最初の共通パターンの列挙のみを行う．
-	for(int i = 0; i < FACTOR_INF; i++) {
-		mu_common2[i] = mu_common[i] = get_next(&eh);
-	}
-
-    for(int t = 0; t < nt; t++) {
-        ivl->lg[t] = 0;
-    }
-
-    int num_c = 0;
-	omp_set_num_threads(nt + 1);
-	do {
-		int part_num_c = 0;
-		#pragma omp parallel reduction (+:part_num_c)
-//        for(int t = 0; t < nt + 1; t++)
-		{
-			int t = omp_get_thread_num();
-            if(t == nt) {
-				// 共通パターンの列挙のみ行う
-                for(int i = 0; i < FACTOR_INF; i++) {
-                    mu_common2[i] = get_next(&eh);
-                }
-//                fprintf(stderr, "next mu_common OK\n");
-            } else {
-//                fprintf(stderr, "get intervals : t = %d ... ", t);
-    			interval *buff = ivl->list + t * ivl->size;
-                for(int i = 0; i < FACTOR_INF; i++) {
-                    sketch_type sk;
-                    sk = mu_common[i] ^ mu_thread[t];
-                    if(bkt[sk + 1] > bkt[sk]) {
-                        buff[ivl->lg[t]++] = (interval){ bkt[sk], bkt[sk + 1] - bkt[sk] };
-                        part_num_c += bkt[sk + 1] - bkt[sk];
-                    }
-                }
-//                fprintf(stderr, "OK: lg = %d\n", ivl->lg[t]);
-            }
-        }
-//        fprintf(stderr, "num_c = %d, part_num = %d\n", num_c, part_num_c);
-		num_c += part_num_c;
-		for(int i = 0; i < FACTOR_INF; i++) {
-			mu_common[i] = mu_common2[i];
-		}
-	} while(num_c < num_candidates_1st);
-
-    balance_interval_list(ivl);
-
-    omp_set_num_threads(nt);
-    #pragma omp parallel
-    {
-        int t = omp_get_thread_num();
-		interval *list = ivl->list + t * ivl->size;
-        kNN_buffer *buff = buff_p[t];
-        for(int i = 0; i < ivl->lg[t]; i++) {
-            for(int j = list[i].start; j < list[i].start + list[i].run; j++) {
-                // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-            }
-        }
-        answer_type *a_buff = ans_buff + t * num_candidates_2nd;
-        flush_kNN_buffer(buff);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            a_buff[i] = buff->buff[i];
-        }
-        free_kNN_buffer(buff);
-    }
-    quick_select_k_answer(ans_buff, 0, num_candidates_2nd * nt - 1, num_candidates_2nd);
-    for(int i = 0; i < num_candidates_2nd; i++) {
-        data_num[i] = ans_buff[i].data_num;
-    }
-    FREE(ans_buff, sizeof(answer_type) * num_candidates_2nd * nt);
-
-	return num_candidates_2nd;
-}
-
-#elif defined(ALTERNATIVE_4)
-
-typedef struct {
-    struct_que_c2_n *que;
-    struct_query_sketch *qs;
-    int low_bit;
-    int num;
-} struct_enumerate_handle;
-
-void start_enumeration(struct_enumerate_handle *eh) {
-	eh->num = 0;
-	if(eh->que == NULL) {
-		eh->que = MALLOC(sizeof(struct_que_c2_n));
-	}
-	make_empty_que_c2_n(eh->que);
-}
-
-sketch_type get_next(struct_enumerate_handle *eh) {
-	static QUE_c2 qu, qu2;
-	int *bd = eh->qs->bd, *bd_idx = eh->qs->idx;
-	int n = eh->low_bit;
-//fprintf(stderr, "get_next: num = 0\n")
-	switch(eh->num) {
-	case 0:
-		eh->num = 1;
-//        fprintf(stderr, "return\n");
-		return eh->qs->sketch;
-	case 1:
-		eh->num = 2;
-		return eh->qs->sketch ^ (1 << bd_idx[n]);
-	case 2:
-		eh->num = 3;
-		qu.cursor = new_que_e2_n(eh->que);
-		qu.key = bd[bd_idx[n + 1]];
-		eh->que->details[qu.cursor].sk = eh->qs->sketch ^ (1 << bd_idx[n + 1]);
-		eh->que->details[qu.cursor].pt = 1 << 1; // pt = "0...00000010"
-		enq_c2_n(&qu, eh->que);
-		deq_c2_n(&qu, eh->que);
-		return eh->que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-	case 3:
-		switch(eh->que->details[qu.cursor].pt & 15) {
-		case 0: // X0000 -> enq(X0001) and enq(Y10^{m+1}) if X0000 = Y010^m
-		case 8: // X1000 -> enq(X1001) and enq(Y10^{m+1}) if X0000 = Y010^m
-			{
-				int m = lsb_pos(eh->que->details[qu.cursor].pt);
-				if(m > 0 && n + m < PJT_DIM - 1 && !(eh->que->details[qu.cursor].pt & (1 << (m + 1)))) {
-					// Y010^m -> Y10^{m+1}
-					qu2.cursor = new_que_e2_n(eh->que);
-					qu2.key = qu.key + bd[bd_idx[n + m + 1]] - bd[bd_idx[n + m]];
-					eh->que->details[qu2.cursor].sk = (eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + m + 1])) ^ (1 << bd_idx[n + m]);
-					eh->que->details[qu2.cursor].pt = eh->que->details[qu.cursor].pt + (1 << m);
-					// Y010^m -> Y010^{m-1}1
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, eh->que);
-					enq_c2_n(&qu2, eh->que);
-				} else {
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, eh->que);
-				}
-			}
-			break;
-		case 4:  // X0100 -> enq(X0101) and enq(X1000)
-			// X1000
-			qu2.cursor = new_que_e2_n(eh->que);
-			qu2.key = qu.key + bd[bd_idx[n + 3]] - bd[bd_idx[n + 2]];
-			eh->que->details[qu2.cursor].sk = (eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 3])) ^ (1 << bd_idx[n + 2]);
-			eh->que->details[qu2.cursor].pt = eh->que->details[qu.cursor].pt + 4;
-			// X0101
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-			eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, eh->que);
-			enq_c2_n(&qu2, eh->que);
-			break;
-		case 1:  // X0001 -> enq(X0010)
-		case 5:  // X0101 -> enq(X0110)
-		case 9:  // X1001 -> enq(X1010)
-		case 13: // X1101 -> enq(X1110) (note that X <> 0, because 0...00 and 0...01 is already processed before while loop)
-			qu.key = qu.key + bd[bd_idx[n + 1]] - bd[bd_idx[n + 0]];
-			eh->que->details[qu.cursor].sk = (eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 1])) ^ (1 << bd_idx[n + 0]);
-			eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, eh->que);
-			break;
-		case 2:  // X0010 -> enq(X0011) and enq(X0100)
-		case 10: // X1010 -> enq(X1011) and enq(X1100)
-			// X0100 and X1100
-			qu2.cursor = new_que_e2_n(eh->que);
-			qu2.key = qu.key +  bd[bd_idx[n + 2]] -  bd[bd_idx[n + 1]];
-			eh->que->details[qu2.cursor].sk = (eh->que->details[qu.cursor].sk ^ (1 << bd_idx[n + 2])) ^ (1 << bd_idx[n + 1]);
-			eh->que->details[qu2.cursor].pt = eh->que->details[qu.cursor].pt + 2;
-			// X0011 and X1011
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, eh->que);
-			enq_c2_n(&qu2, eh->que);
-			break;
-		case 6:  // X0110 -> enq(X0111)
-		case 12: // X1100 -> enq(X1101)
-		case 14: // X1110 -> enq(10111)
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			eh->que->details[qu.cursor].sk = eh->que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			eh->que->details[qu.cursor].pt = eh->que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, eh->que);
-			break;
-		case 3:  // X0011
-		case 7:  // X0111
-		case 11: // X1011
-		case 15: // X1111 -> nothing to do
-			break;
-		}
-		deq_c2_n(&qu, eh->que);
-		return eh->que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-	}
-    return 0;
-}
-
-// Alternative-Filtering（multi-thread）
-// 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
-// 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
-// 1st と 2nd を交互に実行する
-int alternative_filtering_by_sketch_enumeration_hamming_and_qpsmap(
-	struct_query_sketch *qs, 
-    #if defined(USE_PACKED_3BIT) || defined(USE_PACKED_6BIT)
-	unsigned int table_for_packed[][1 << QUANTIZE_BIT * TABLE_UNIT], 
-    #else
-	unsigned int table_for_packed[][256], 
-    #endif
-	struct_bucket *bucket, 
-	tiny_int packed_qpsmap_data[][PACKED_QPSMAP_SIZE], 
-	int data_num[], int num_candidates_1st, int num_candidates_2nd)
-{
-    // THREAD_PLUS > 0 には未対応
-	int n = PARA_ENUM_INF;
-	int nt = (1 << n); // スレッド数
-	#ifdef _OPENMP
-	omp_set_num_threads(nt);
-	#endif
-
-    // INTERVAL を使用しない（すぐに展開して2nd-filteringに渡すので）
-
-    static struct_que_c2_n *que = NULL;
-    if(que == NULL) que = MALLOC(sizeof(struct_que_c2_n));
-
-	static int first = 1;
-	if(first) {
-		#ifndef WITHOUT_IDX
-		fprintf(stderr, "alternative(3)_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITH_IDX. \n", nt);
-		#else
-		fprintf(stderr, "alternative(3)_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITHOUT_IDX. \n", nt);
-		#endif
-		first = 0;
-	}
-
-//	sketch_type s;
-//	QUE_c2 qu, qu2;
-	int *bd_idx = qs->idx;
-	int *bkt = bucket->bkt;
-
-	sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-	// このパターンの順序は，D_INF 用の grey code 生成ルールを用いて準備する
-	mu_thread[0] = 0;
-	for(int t = 0; t < nt - 1; t++) {
-		mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-	}
-	// 下位 n ビットは，スレッド毎に割り当てた mu_thread[t] との XOR で求める．
-	// それ以降の PJT_DIM - n ビットのみを変化させた，スケッチを列挙する（下位 n ビットは，質問のまま）
-
-    // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
-    // スレッドに分けても同じ候補数を選ばせる
-    answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_candidates_2nd * nt); // 最後に各スレッドが求めたものを一つにまとめて，quick_selectする．
-    kNN_buffer *buff_p[nt];
-    for(int t = 0; t < nt; t++) { buff_p[t] = new_kNN_buffer(num_candidates_2nd); }
-
-	sketch_type mu_common[FACTOR_INF];			// 一回の処理で求めるFACTOR_INF個の共通マスクの配列
-	sketch_type mu_common2[FACTOR_INF];			// 一回の処理で求めるFACTOR_INF個の共通マスクの配列のコピー
-
-	// まず，single-threadで最初のFACTOR_INF個の共通パターンを列挙し，0-分割のdouble-filteringを先行する．
-	static struct_enumerate_handle eh = { NULL, NULL, 0, 0 };
-	eh.low_bit = n; 
-    eh.qs = qs;
-//    fprintf(stderr, "start_enumeration ... ");
-	start_enumeration(&eh);
-//    fprintf(stderr, "OK\n");
-	int num_c = 0; // 1st-filteringで得られた候補数
-	for(int i = 0; i < FACTOR_INF; i++) {
-		mu_common2[i] = mu_common[i] = get_next(&eh);
-//        fprintf(stderr, "mu_common[%d] = %d\n", i, mu_common[i]);
-		sketch_type sk = mu_common[i] ^ mu_thread[0];
-		if(bkt[sk + 1] > bkt[sk]) {
-			for(int j = bkt[sk]; j <= bkt[sk + 1]; j++) {
-				// ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-				dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-				answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-				push_kNN_buffer(&ans, buff_p[0]); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-			}
-			num_c += bkt[sk + 1] - bkt[sk];
-		}
-	}
-
-	do {
-		int part_num_c = 0;
-		#pragma omp parallel reduction (+:part_num_c)
-		{
-			int t = omp_get_thread_num();
-	        kNN_buffer *buff = buff_p[t];
-            if(t == 0) {
-                for(int i = 0; i < FACTOR_INF; i++) {
-                    sketch_type sk;
-                    // 第0スレッドは，共通パターン列挙を先行する．
-                    sk = mu_common[i] = get_next(&eh);
-                    sk ^= mu_thread[t];
-                    if(bkt[sk + 1] > bkt[sk]) {
-                        for(int j = bkt[sk]; j <= bkt[sk + 1]; j++) {
-                            // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                            dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                            answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                            push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                        }
-                        part_num_c += bkt[sk + 1] - bkt[sk];
-                    }
-                }
-            } else {
-                for(int i = 0; i < FACTOR_INF; i++) {
-                    sketch_type sk;
-                    sk = mu_common2[i];
-                    sk ^= mu_thread[t];
-                    if(bkt[sk + 1] > bkt[sk]) {
-                        for(int j = bkt[sk]; j <= bkt[sk + 1]; j++) {
-                            // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                            dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                            answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                            push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                        }
-                        part_num_c += bkt[sk + 1] - bkt[sk];
-                    }
-                }
-            }
-        }
-		num_c += part_num_c;
-		for(int i = 0; i < FACTOR_INF; i++) {
-			mu_common2[i] = mu_common[i];
-		}
-	} while(num_c < num_candidates_1st);
-
-    for(int t = 0; t < nt; t++) {
-        kNN_buffer *buff = buff_p[t];
-        answer_type *a_buff = ans_buff + t * num_candidates_2nd;
-        flush_kNN_buffer(buff);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            a_buff[i] = buff->buff[i];
-        }
-        free_kNN_buffer(buff);
-    }
-    quick_select_k_answer(ans_buff, 0, num_candidates_2nd * nt - 1, num_candidates_2nd);
-    for(int i = 0; i < num_candidates_2nd; i++) {
-        data_num[i] = ans_buff[i].data_num;
-    }
-    FREE(ans_buff, sizeof(answer_type) * num_candidates_2nd * nt);
-
-	return num_candidates_2nd;
-}
-#elif defined(ALTERNATIVE_3)
-// Alternative-Filtering（multi-thread）
-// 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
-// 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
-// 1st と 2nd を交互に実行する
-int alternative_filtering_by_sketch_enumeration_hamming_and_qpsmap(
-	struct_query_sketch *qs, 
-    #if defined(USE_PACKED_3BIT) || defined(USE_PACKED_6BIT)
-	unsigned int table_for_packed[][1 << QUANTIZE_BIT * TABLE_UNIT], 
-    #else
-	unsigned int table_for_packed[][256], 
-    #endif
-	struct_bucket *bucket, 
-	tiny_int packed_qpsmap_data[][PACKED_QPSMAP_SIZE], 
-	int data_num[], int num_candidates_1st, int num_candidates_2nd)
-{
-    // THREAD_PLUS > 0 には未対応
-	int n = PARA_ENUM_INF;
-	int nt = (1 << n); // スレッド数
-	#ifdef _OPENMP
-	omp_set_num_threads(nt);
-	#endif
-
-    // INTERVAL を使用しない（すぐに展開して2nd-filteringに渡すので）
-
-    static struct_que_c2_n *que = NULL;
-    if(que == NULL) que = MALLOC(sizeof(struct_que_c2_n));
-
-	static int first = 1;
-	if(first) {
-		#ifndef WITHOUT_IDX
-		fprintf(stderr, "alternative_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITH_IDX. \n", nt);
-		#else
-		fprintf(stderr, "alternative_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITHOUT_IDX. \n", nt);
-		#endif
-		first = 0;
-	}
-
-	sketch_type s;
-	QUE_c2 qu, qu2;
-	int *bd = qs->bd, *bd_idx = qs->idx;
-	int *bkt = bucket->bkt;
-
-	sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-	// このパターンの順序は，D_INF 用の grey code 生成ルールを用いて準備する
-	mu_thread[0] = 0;
-	for(int t = 0; t < nt - 1; t++) {
-		mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-	}
-	// 下位 n ビットは，スレッド毎に割り当てた mu_thread[t] との XOR で求める．
-	// それ以降の PJT_DIM - n ビットのみを変化させた，スケッチを列挙する（下位 n ビットは，質問のまま）
-
-    // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
-    // スレッドに分けても同じ候補数を選ばせる
-    answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_candidates_2nd * nt); // 最後に各スレッドが求めたものを一つにまとめて，quick_selectする．
-    kNN_buffer *buff_p[nt];
-    for(int t = 0; t < nt; t++) { buff_p[t] = new_kNN_buffer(num_candidates_2nd); }
-
-	sketch_type mu_common[FACTOR_INF];			// 一回の処理で求めるFACTOR_INF個の共通マスクの配列
-
-	int num_sk = 0; // 列挙した共通スケッチ数
-	s = qs->sketch; // 先頭は質問のスケッチ
-	mu_common[num_sk++] = s;
-	int chk_sum = 0;
-
-	s = s ^ (1 <<  bd_idx[n]); // 先頭の次は、質問のスケッチと距離下限が最小のビットだけが異なるもの
-	mu_common[num_sk++] = s;
-
-	make_empty_que_c2_n(que);
-
-	// enq pattern of 0...10
-	qu.cursor = new_que_e2_n(que);
-	qu.key = bd[bd_idx[n + 1]];
-	que->details[qu.cursor].sk = qs->sketch ^ (1 << bd_idx[n + 1]);
-	que->details[qu.cursor].pt = 1 << 1; // pt = "0...00000010"
-	enq_c2_n(&qu, que);		
-
-	while(deq_c2_n(&qu, que)) {
-
-		s = que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-		mu_common[num_sk++] = s;
-
-        // num_checked までは，データ番号リストに展開して，2nd-filtering に渡し数を確認済み（chk_sum）．
-        // num_sk までは，共通マスク（mu_common）作成済み．
-        // num_checked 以降 num_sk までのデータ数は，sum_part
-
-		if(num_sk >= FACTOR_INF) { // FACTOR_INF 個ごとに データ番号リストに展開して 2nd-filtering に渡す
-			int sum_part = 0;
-			#pragma omp parallel reduction (+:sum_part)
-			{
-				int t = omp_get_thread_num();
-                kNN_buffer *buff = buff_p[t];
-                for(int i = 0; i < num_sk; i++) {
-                    sketch_type sk = mu_common[i] ^ mu_thread[t];
-                    if(bkt[sk + 1] > bkt[sk]) {
-                        for(int j = bkt[sk]; j <= bkt[sk + 1]; j++) {
-                            // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                            dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                            answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                            push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                        }
-                        sum_part += bkt[sk + 1] - bkt[sk];
-                    }
-                }
-			}
-			chk_sum += sum_part;
-            num_sk = 0;
-			if(chk_sum >= num_candidates_1st) {
-				break;
-			}
-		}
-
-		switch(que->details[qu.cursor].pt & 15) {
-		case 0: // X0000 -> enq(X0001) and enq(Y10^{m+1}) if X0000 = Y010^m
-		case 8: // X1000 -> enq(X1001) and enq(Y10^{m+1}) if X0000 = Y010^m
-			{
-				int m = lsb_pos(que->details[qu.cursor].pt);
-				if(m > 0 && n + m < PJT_DIM - 1 && !(que->details[qu.cursor].pt & (1 << (m + 1)))) {
-					// Y010^m -> Y10^{m+1}
-					qu2.cursor = new_que_e2_n(que);
-					qu2.key = qu.key + bd[bd_idx[n + m + 1]] - bd[bd_idx[n + m]];
-					que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + m + 1])) ^ (1 << bd_idx[n + m]);
-					que->details[qu2.cursor].pt = que->details[qu.cursor].pt + (1 << m);
-					// Y010^m -> Y010^{m-1}1
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-					enq_c2_n(&qu2, que);
-				} else {
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-				}
-			}
-			break;
-		case 4:  // X0100 -> enq(X0101) and enq(X1000)
-			// X1000
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key + bd[bd_idx[n + 3]] - bd[bd_idx[n + 2]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 3])) ^ (1 << bd_idx[n + 2]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 4;
-			// X0101
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 1:  // X0001 -> enq(X0010)
-		case 5:  // X0101 -> enq(X0110)
-		case 9:  // X1001 -> enq(X1010)
-		case 13: // X1101 -> enq(X1110) (note that X <> 0, because 0...00 and 0...01 is already processed before while loop)
-			qu.key = qu.key + bd[bd_idx[n + 1]] - bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 1])) ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 2:  // X0010 -> enq(X0011) and enq(X0100)
-		case 10: // X1010 -> enq(X1011) and enq(X1100)
-			// X0100 and X1100
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key +  bd[bd_idx[n + 2]] -  bd[bd_idx[n + 1]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 2])) ^ (1 << bd_idx[n + 1]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 2;
-			// X0011 and X1011
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 6:  // X0110 -> enq(X0111)
-		case 12: // X1100 -> enq(X1101)
-		case 14: // X1110 -> enq(10111)
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 3:  // X0011
-		case 7:  // X0111
-		case 11: // X1011
-		case 15: // X1111 -> nothing to do
-			break;
-		}
-	}
-
-    for(int t = 0; t < nt; t++) {
-        kNN_buffer *buff = buff_p[t];
-        answer_type *a_buff = ans_buff + t * num_candidates_2nd;
-        flush_kNN_buffer(buff);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            a_buff[i] = buff->buff[i];
-        }
-        free_kNN_buffer(buff);
-    }
-    quick_select_k_answer(ans_buff, 0, num_candidates_2nd * nt - 1, num_candidates_2nd);
-    for(int i = 0; i < num_candidates_2nd; i++) {
-        data_num[i] = ans_buff[i].data_num;
-    }
-    FREE(ans_buff, sizeof(answer_type) * num_candidates_2nd * nt);
-
-	return num_candidates_2nd;
-}
-#elif defined(ALTERNATIVE_2)
-// Alternative-Filtering（multi-thread）
-// 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
-// 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
-// 1st と 2nd を交互に実行する
-int alternative_filtering_by_sketch_enumeration_hamming_and_qpsmap(
-	struct_query_sketch *qs, 
-    #if defined(USE_PACKED_3BIT) || defined(USE_PACKED_6BIT)
-	unsigned int table_for_packed[][1 << QUANTIZE_BIT * TABLE_UNIT], 
-    #else
-	unsigned int table_for_packed[][256], 
-    #endif
-	struct_bucket *bucket, 
-	tiny_int packed_qpsmap_data[][PACKED_QPSMAP_SIZE], 
-	int data_num[], int num_candidates_1st, int num_candidates_2nd)
-{
-    // THREAD_PLUS > 0 には未対応
-	int n = PARA_ENUM_INF;
-	int nt = (1 << n); // スレッド数
-	#ifdef _OPENMP
-	omp_set_num_threads(nt);
-	#endif
-
-    // INTERVAL を使用しない（すぐに展開して2nd-filteringに渡すので）
-
-    static struct_que_c2_n *que = NULL;
-    if(que == NULL) que = MALLOC(sizeof(struct_que_c2_n));
-
-	static int first = 1;
-	if(first) {
-		#ifndef WITHOUT_IDX
-		fprintf(stderr, "alternative_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITH_IDX. \n", nt);
-		#else
-		fprintf(stderr, "alternative_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITHOUT_IDX. \n", nt);
-		#endif
-		first = 0;
-	}
-
-	sketch_type s;
-	QUE_c2 qu, qu2;
-	int *bd = qs->bd, *bd_idx = qs->idx;
-	int *bkt = bucket->bkt;
-
-	sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-	// このパターンの順序は，D_INF 用の grey code 生成ルールを用いて準備する
-	mu_thread[0] = 0;
-	for(int t = 0; t < nt - 1; t++) {
-		mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-	}
-	// 下位 n ビットは，スレッド毎に割り当てた mu_thread[t] との XOR で求める．
-	// それ以降の PJT_DIM - n ビットのみを変化させた，スケッチを列挙する（下位 n ビットは，質問のまま）
-
-    // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
-    // スレッドに分けても同じ候補数を選ばせる
-    answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_candidates_2nd * nt); // 最後に各スレッドが求めたものを一つにまとめて，quick_selectする．
-    kNN_buffer *buff_p[nt];
-    for(int t = 0; t < nt; t++) { buff_p[t] = new_kNN_buffer(num_candidates_2nd); }
-
-	// sketch_type mu_common[num_candidates_1st];			// 一回の処理で求めた共通マスクの配列
-	static sketch_type *mu_common = NULL;			// 一回の処理で求めた共通マスクの配列
-    static int mu_common_size = 0;
-    if(num_candidates_1st > mu_common_size) {
-        if(mu_common_size > 0) {
-            FREE(mu_common, sizeof(sketch_type) * mu_common_size);
-        }
-        mu_common = MALLOC(sizeof(sketch_type) * num_candidates_1st);
-        mu_common_size = num_candidates_1st;
-    }
-
-	int num_sk = 0; // 列挙した共通スケッチ数
-	s = qs->sketch; // 先頭は質問のスケッチ
-	mu_common[num_sk++] = s;
-	int chk_sum = 0;
-	int num_checked = 0; // chk_sum を調べたスケッチ数
-
-	s = s ^ (1 <<  bd_idx[n]); // 先頭の次は、質問のスケッチと距離下限が最小のビットだけが異なるもの
-	mu_common[num_sk++] = s;
-
-	make_empty_que_c2_n(que);
-
-	// enq pattern of 0...10
-	qu.cursor = new_que_e2_n(que);
-	qu.key = bd[bd_idx[n + 1]];
-	que->details[qu.cursor].sk = qs->sketch ^ (1 << bd_idx[n + 1]);
-	que->details[qu.cursor].pt = 1 << 1; // pt = "0...00000010"
-	enq_c2_n(&qu, que);		
-
-	while(deq_c2_n(&qu, que)) {
-
-		s = que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-		mu_common[num_sk++] = s;
-
-		if(num_sk >= num_checked + FACTOR_INF) { // FACTOR_INF 個ごとに chk_sum を求める
-			int sum_part = 0;
-			#pragma omp parallel reduction (+:sum_part)
-			{
-				int t = omp_get_thread_num();
-				for(int j = num_checked; j < num_sk; j++) {
-					sketch_type sk = mu_common[j] ^ mu_thread[t];
-					sum_part += bkt[sk + 1] - bkt[sk];
-				}
-			}
-
-			// num_checked までは，データ数を確認済み（chk_sum）．
-			// num_sk までは，共通マスク（mu_common）作成済み．
-			// num_checked 以降 num_sk までのデータ数は，sum_part
-			if(chk_sum + sum_part >= num_candidates_1st) {
-				break;
-			}
-
-			num_checked = num_sk;
-			chk_sum += sum_part;
-		}
-
-		switch(que->details[qu.cursor].pt & 15) {
-		case 0: // X0000 -> enq(X0001) and enq(Y10^{m+1}) if X0000 = Y010^m
-		case 8: // X1000 -> enq(X1001) and enq(Y10^{m+1}) if X0000 = Y010^m
-			{
-				int m = lsb_pos(que->details[qu.cursor].pt);
-				if(m > 0 && n + m < PJT_DIM - 1 && !(que->details[qu.cursor].pt & (1 << (m + 1)))) {
-					// Y010^m -> Y10^{m+1}
-					qu2.cursor = new_que_e2_n(que);
-					qu2.key = qu.key + bd[bd_idx[n + m + 1]] - bd[bd_idx[n + m]];
-					que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + m + 1])) ^ (1 << bd_idx[n + m]);
-					que->details[qu2.cursor].pt = que->details[qu.cursor].pt + (1 << m);
-					// Y010^m -> Y010^{m-1}1
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-					enq_c2_n(&qu2, que);
-				} else {
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-				}
-			}
-			break;
-		case 4:  // X0100 -> enq(X0101) and enq(X1000)
-			// X1000
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key + bd[bd_idx[n + 3]] - bd[bd_idx[n + 2]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 3])) ^ (1 << bd_idx[n + 2]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 4;
-			// X0101
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 1:  // X0001 -> enq(X0010)
-		case 5:  // X0101 -> enq(X0110)
-		case 9:  // X1001 -> enq(X1010)
-		case 13: // X1101 -> enq(X1110) (note that X <> 0, because 0...00 and 0...01 is already processed before while loop)
-			qu.key = qu.key + bd[bd_idx[n + 1]] - bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 1])) ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 2:  // X0010 -> enq(X0011) and enq(X0100)
-		case 10: // X1010 -> enq(X1011) and enq(X1100)
-			// X0100 and X1100
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key +  bd[bd_idx[n + 2]] -  bd[bd_idx[n + 1]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 2])) ^ (1 << bd_idx[n + 1]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 2;
-			// X0011 and X1011
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 6:  // X0110 -> enq(X0111)
-		case 12: // X1100 -> enq(X1101)
-		case 14: // X1110 -> enq(10111)
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 3:  // X0011
-		case 7:  // X0111
-		case 11: // X1011
-		case 15: // X1111 -> nothing to do
-			break;
-		}
-	}
-
-    int num_c_all = 0;
-    int num_c = 0;
-	#pragma omp parallel reduction (+:num_c)
-	{
-		int t = omp_get_thread_num();	// スレッド番号
-        kNN_buffer *buff = buff_p[t];
-		for(int i = 0; i < num_checked; i++) {
-			sketch_type sk = mu_common[i] ^ mu_thread[t];
-            if(bkt[sk + 1] > bkt[sk]) {
-                for(int j = bkt[sk]; j <= bkt[sk + 1]; j++) {
-                    // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                    dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                    answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                    push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                }
-                num_c += bkt[sk + 1] - bkt[sk];
-            }
-		}
-	}
-    num_c_all += num_c;
-
-	while(num_c_all < num_candidates_1st) {
-        num_c = 0;
-		#pragma omp parallel reduction (+:num_c)
-		{
-			int t = omp_get_thread_num();	// スレッド番号
-            kNN_buffer *buff = buff_p[t];
-			for(int i = num_checked; i < num_checked + FACTOR_INF2; i++) {
-				sketch_type sk = mu_common[i] ^ mu_thread[t];
-				if(bkt[sk + 1] > bkt[sk]) {
-                    for(int j = bkt[sk]; j <= bkt[sk + 1]; j++) {
-                        // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                        dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                        answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                        push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                    }
-                    num_c += bkt[sk + 1] - bkt[sk];
-				}
-			}
-		}
-		num_c_all += num_c;
-		num_checked += FACTOR_INF2;
-	}
-
-    #pragma omp parallel
-    {
-        int t = omp_get_thread_num();
-        kNN_buffer *buff = buff_p[t];
-        answer_type *a_buff = ans_buff + t * num_candidates_2nd;
-        flush_kNN_buffer(buff);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            a_buff[i] = buff->buff[i];
-        }
-    }
-    for(int t = 0; t < nt; t++) {
-        kNN_buffer *buff = buff_p[t];
-        free_kNN_buffer(buff);
-    }
-    quick_select_k_answer(ans_buff, 0, num_candidates_2nd * nt - 1, num_candidates_2nd);
-    for(int i = 0; i < num_candidates_2nd; i++) {
-        data_num[i] = ans_buff[i].data_num;
-    }
-    FREE(ans_buff, sizeof(answer_type) * num_candidates_2nd * nt);
-
-	return num_candidates_2nd;
-}
-#else
-// Alternative-Filtering（multi-thread）
-// 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
-// 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
-// 1st と 2nd を交互に実行する(*)
-int alternative_filtering_by_sketch_enumeration_hamming_and_qpsmap(
-	struct_query_sketch *qs, 
-    #if defined(USE_PACKED_3BIT) || defined(USE_PACKED_6BIT)
-	unsigned int table_for_packed[][1 << QUANTIZE_BIT * TABLE_UNIT], 
-    #else
-	unsigned int table_for_packed[][256], 
-    #endif
-	struct_bucket *bucket, 
-	tiny_int packed_qpsmap_data[][PACKED_QPSMAP_SIZE], 
-	int data_num[], int num_candidates_1st, int num_candidates_2nd)
-{
-    // THREAD_PLUS > 0 には未対応
-	int n = PARA_ENUM_INF;
-	int nt = (1 << n); // スレッド数
-	#ifdef _OPENMP
-	omp_set_num_threads(nt);
-	#endif
-
-    // INTERVAL を使用しない（すぐに展開して2nd-filteringに渡すので）
-
-    static struct_que_c2_n *que = NULL;
-    if(que == NULL) que = MALLOC(sizeof(struct_que_c2_n));
-
-	static int first = 1;
-	if(first) {
-		#ifndef WITHOUT_IDX
-		fprintf(stderr, "alternative_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITH_IDX. \n", nt);
-		#else
-		fprintf(stderr, "alternative_filtering_by_sketch_enumeration_c2_n_interval %d-thread WITHOUT_IDX. \n", nt);
-		#endif
-		first = 0;
-	}
-
-	sketch_type s;
-	QUE_c2 qu, qu2;
-	int *bd = qs->bd, *bd_idx = qs->idx;
-	int *bkt = bucket->bkt;
-
-	sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-	// このパターンの順序は，D_INF 用の grey code 生成ルールを用いて準備する
-	mu_thread[0] = 0;
-	for(int t = 0; t < nt - 1; t++) {
-		mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-	}
-	// 下位 n ビットは，スレッド毎に割り当てた mu_thread[t] との XOR で求める．
-	// それ以降の PJT_DIM - n ビットのみを変化させた，スケッチを列挙する（下位 n ビットは，質問のまま）
-
-    // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
-    // スレッドに分けても同じ候補数を選ばせる
-    answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_candidates_2nd * nt); // 最後に各スレッドが求めたものを一つにまとめて，quick_selectする．
-    kNN_buffer *buff_p[nt];
-    for(int t = 0; t < nt; t++) { buff_p[t] = new_kNN_buffer(num_candidates_2nd); }
-
-	s = qs->sketch; // 先頭は質問のスケッチ
-
-    int num_c_all = 0; // 列挙された総データ数
-    int num_c; // 共通スケッチ s に対して，スレッド割当てパターンとのXORで得られるスケッチにより列挙されるデータ数
-    num_c = 0;
-    #pragma omp parallel reduction (+:num_c)
-    {
-        int t = omp_get_thread_num();	// スレッド番号
-        kNN_buffer *buff = buff_p[t];
-        sketch_type sk = s ^ mu_thread[t];
-        if(bkt[sk + 1] > bkt[sk]) {
-            for(int j = bkt[sk]; j <= bkt[sk + 1]; j++) {
-                // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-            }
-            num_c += bkt[sk + 1] - bkt[sk];
-        }
-    }
-    num_c_all += num_c;
-    if(num_c_all >= num_candidates_1st) goto ret;
-
-	s = s ^ (1 <<  bd_idx[n]); // 先頭の次は、質問のスケッチと距離下限が最小のビットだけが異なるもの
-
-    num_c = 0; // 共通スケッチ s に対して，スレッド割当てパターンとのXORで得られるスケッチにより列挙されるデータ数
-    #pragma omp parallel reduction (+:num_c)
-    {
-        int t = omp_get_thread_num();	// スレッド番号
-        kNN_buffer *buff = buff_p[t];
-        sketch_type sk = s ^ mu_thread[t];
-        if(bkt[sk + 1] > bkt[sk]) {
-            for(int j = bkt[sk]; j <= bkt[sk + 1]; j++) {
-                // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-            }
-            num_c += bkt[sk + 1] - bkt[sk];
-        }
-    }
-    num_c_all += num_c;
-    if(num_c_all >= num_candidates_1st) goto ret;
-
-	make_empty_que_c2_n(que);
-
-	// enq pattern of 0...10
-	qu.cursor = new_que_e2_n(que);
-	qu.key = bd[bd_idx[n + 1]];
-	que->details[qu.cursor].sk = qs->sketch ^ (1 << bd_idx[n + 1]);
-	que->details[qu.cursor].pt = 1 << 1; // pt = "0...00000010"
-	enq_c2_n(&qu, que);		
-
-	while(deq_c2_n(&qu, que)) {
-
-		s = que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-        num_c = 0;
-        #pragma omp parallel reduction (+:num_c)
-        {
-            int t = omp_get_thread_num();	// スレッド番号
-            kNN_buffer *buff = buff_p[t];
-            sketch_type sk = s ^ mu_thread[t];
-            if(bkt[sk + 1] > bkt[sk]) {
-                for(int j = bkt[sk]; j <= bkt[sk + 1]; j++) {
-                    // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                    dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                    answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                    push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                }
-                num_c += bkt[sk + 1] - bkt[sk];
-            }
-        }
-        num_c_all += num_c;
-        if(num_c_all >= num_candidates_1st) goto ret;
-
-		switch(que->details[qu.cursor].pt & 15) {
-		case 0: // X0000 -> enq(X0001) and enq(Y10^{m+1}) if X0000 = Y010^m
-		case 8: // X1000 -> enq(X1001) and enq(Y10^{m+1}) if X0000 = Y010^m
-			{
-				int m = lsb_pos(que->details[qu.cursor].pt);
-				if(m > 0 && n + m < PJT_DIM - 1 && !(que->details[qu.cursor].pt & (1 << (m + 1)))) {
-					// Y010^m -> Y10^{m+1}
-					qu2.cursor = new_que_e2_n(que);
-					qu2.key = qu.key + bd[bd_idx[n + m + 1]] - bd[bd_idx[n + m]];
-					que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + m + 1])) ^ (1 << bd_idx[n + m]);
-					que->details[qu2.cursor].pt = que->details[qu.cursor].pt + (1 << m);
-					// Y010^m -> Y010^{m-1}1
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-					enq_c2_n(&qu2, que);
-				} else {
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-				}
-			}
-			break;
-		case 4:  // X0100 -> enq(X0101) and enq(X1000)
-			// X1000
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key + bd[bd_idx[n + 3]] - bd[bd_idx[n + 2]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 3])) ^ (1 << bd_idx[n + 2]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 4;
-			// X0101
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 1:  // X0001 -> enq(X0010)
-		case 5:  // X0101 -> enq(X0110)
-		case 9:  // X1001 -> enq(X1010)
-		case 13: // X1101 -> enq(X1110) (note that X <> 0, because 0...00 and 0...01 is already processed before while loop)
-			qu.key = qu.key + bd[bd_idx[n + 1]] - bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 1])) ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 2:  // X0010 -> enq(X0011) and enq(X0100)
-		case 10: // X1010 -> enq(X1011) and enq(X1100)
-			// X0100 and X1100
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key +  bd[bd_idx[n + 2]] -  bd[bd_idx[n + 1]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 2])) ^ (1 << bd_idx[n + 1]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 2;
-			// X0011 and X1011
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 6:  // X0110 -> enq(X0111)
-		case 12: // X1100 -> enq(X1101)
-		case 14: // X1110 -> enq(10111)
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 3:  // X0011
-		case 7:  // X0111
-		case 11: // X1011
-		case 15: // X1111 -> nothing to do
-			break;
-		}
-	}
-
-ret:
-
-    #pragma omp parallel
-    {
-        int t = omp_get_thread_num();
-        kNN_buffer *buff = buff_p[t];
-        answer_type *a_buff = ans_buff + t * num_candidates_2nd;
-        flush_kNN_buffer(buff);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            a_buff[i] = buff->buff[i];
-        }
-    }
-    for(int t = 0; t < nt; t++) {
-        kNN_buffer *buff = buff_p[t];
-        free_kNN_buffer(buff);
-    }
-    quick_select_k_answer(ans_buff, 0, num_candidates_2nd * nt - 1, num_candidates_2nd);
-    for(int i = 0; i < num_candidates_2nd; i++) {
-        data_num[i] = ans_buff[i].data_num;
-    }
-    FREE(ans_buff, sizeof(answer_type) * num_candidates_2nd * nt);
-
-	return num_candidates_2nd;
-}
-#endif // ALTERNATIVE_2
 
 #endif
 
@@ -2411,6 +1206,10 @@ int main(int argc, char *argv[])
 	init_search_kNN_on_ram(num_top_k);
     #endif
 
+    #ifdef STATIC_DF_WORK
+    init_space_for_double_filtering(1000000, 2000);
+    #endif
+
     if(fp_summary != NULL) {
         fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, recall@1, recall@30, filtering, 1st(sec), 2nd(sec), kNN(sec), ave(ms/q), stdev(ms/q), min(ms/q), max(ms/q)\n");
     }
@@ -2486,8 +1285,6 @@ int main(int argc, char *argv[])
         if(num_candidates_2nd <= 30) num_candidates_2nd = 30;
         fprintf(stderr, "num_data = %d, num_candidates_1st = %d, num_candidates_2nd = %d\n", num_data, num_candidates_1st, num_candidates_2nd);
         double total_filtering = 0, total_kNN = 0, total_total = 0, total_recall = 0;
-//        init_space_for_double_filtering(num_data);
-        init_space_for_double_filtering(500000);
 
         for(int m = 0; m < num_query_files; m++) {
 			use_system("VmSize");
@@ -2505,13 +1302,8 @@ int main(int argc, char *argv[])
             double e_time_filtering = 0, e_time_kNN = 0, e_time_total = 0;
             reset_filtering_cost();
 
-//          double trial_filtering_cost[num_queries];
             double trial_search_cost[num_queries];
-//          int trial_found[num_queries];
-//          dist_type trial_dist[num_queries];
-
 			int found = 0;
-//            double sum = 0, sum2 = 0;
             
             for(int q = 0; q < num_queries; q++) {
 
@@ -2525,21 +1317,11 @@ int main(int argc, char *argv[])
                 make_table_for_packed_data(table, table_for_packed, offset, slice); // 圧縮表現データのための表 table_for_packed を作成する．
 
                 // double-filtering でデータ番号を求める．
-                #if defined(FILTERING_BY_SKETCH_ENUMERATION_C2N) && defined(ALTERNATIVE_ENUMERATION)
-                alternative_filtering_by_sketch_enumeration_hamming_and_qpsmap(&query_sketch, table_for_packed, bucket_ds, packed_qpsmap_data, data_num_candidates, num_candidates_1st, num_candidates_2nd);
-                #else
                 double_filtering_by_sketch_enumeration_hamming_and_qpsmap(&query_sketch, table_for_packed, bucket_ds, packed_qpsmap_data, data_num_candidates, num_candidates_1st, num_candidates_2nd);
-                #endif
-//fprintf(stderr, "double_filtering_by_sketch_enumeration_hamming_and_qpsmap OK\n");
+
                 clock_gettime(CLOCK_METHOD, &tp2);
 				e_time_filtering += e_time(&tp1, &tp2);
-//              trial_filtering_cost[q] = e_time(&tp1, &tp2);
 
-//for(int x = 0; x < num_candidates_1st; x++) {
-//    if(data_num_candidates[x] < 0 || data_num_candidates[x] > num_data) {
-//        fprintf(stderr, "invalid data number %d in candidates 1st for q = %d\n", data_num_candidates[x], q);
-//    }
-//}
                 #if NUM_K == 0
                     // Filtering のみで，そのコストを求める．
                 #elif NUM_K == -2

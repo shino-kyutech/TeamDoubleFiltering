@@ -2348,6 +2348,10 @@ int main(int argc, char *argv[])
         for(int q = 0; q < max_num_qr; q++) { top_k[q] = new_kNN_buffer(num_top_k); }
     #endif
 
+    #ifdef STATIC_KNN_BUFFER_FOR_SEARCH
+	init_search_kNN_on_ram(num_top_k);
+    #endif
+
     if(fp_summary != NULL) {
         fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, recall@1, recall@30, filtering, 1st(sec), 2nd(sec), kNN(sec), ave(ms/q), stdev(ms/q), min(ms/q), max(ms/q)\n");
     }

@@ -1,5 +1,5 @@
 #!/bin/bash
-if [ $# -ne 27 ] ; then
+if [ $# -ne 28 ] ; then
 echo "Usage>"
 echo "1.  1st pivot  = pivot file for narrow sketch (for 1st filtering)"
 echo "2.  2nd pivot  = pivot file for qpsmap (for 2nd filtering)"
@@ -28,6 +28,7 @@ echo "24. use pd     = (0: without, 1: use pd)"
 echo "25. batch file = file name including hyper parameters (nc1 and nc2), or NONE for interactive manner"
 echo "26. summary.csv = summary file"
 echo "27. search_cost.csv = file for search cost"
+echo "28. program version"
 
 exit 1
 fi
@@ -38,8 +39,6 @@ ds_dir=./ftr
 qr_dir=./query
 pv_dir=./pivot
 bk_dir=./bkt
-
-pr=search_by_double_filtering_hamming_smap_v5_1
 
 #set -x
 
@@ -159,6 +158,9 @@ use_pd=$1; shift
 batch=$1; shift
 summary=$1; shift
 scost=$1; shift
+version=$1; shift
+
+pr=search_by_double_filtering_hamming_smap_${version}
 
 if [ $batch != NONE ] ; then
   if [ ! -e $batch ] ; then
@@ -254,6 +256,8 @@ cflags="$cflags -DSPP_BIT=$supp"
 cflags="$cflags -DSECOND_FILTERING_KNN_BUFFER"
 #cflags="$cflags -DSECOND_FILTERING_SELECT"
 #cflags="$cflags -DMIN_LIST=$ml"
+#cflags="$cflags -DSTATIC_KNN_BUFFER_FOR_SEARCH"
+cflags="$cflags -DSTATIC_DF_WORK"
 
 cflags="$cflags -DFACTOR_INF=$sf"
 cflags="$cflags -DFACTOR_INF2=$sf2"
@@ -390,7 +394,7 @@ if [ $summary != NONE ] ; then
 cflags="$cflags -DSUMMARY_FILE=\"$rs/$summary\""
 fi
 if [ $scost != NONE ] ; then
-cflags="$cflags -DPRINT_SEARCH_COST=\"$rs/$scost\""
+cflags="$cflags -DPRINT_SEARCH_COST=\"$rs/${scost}.csv\""
 fi
 cflags="$cflags -DANSWER_DIST_FLOAT"
 
