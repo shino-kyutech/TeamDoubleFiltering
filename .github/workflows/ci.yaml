@@ -64,7 +64,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential hdf5-tools libhdf5-dev libhdf5-serial-dev bash
-          mkdir data
           mkdir result
           mkdir ftr
           mkdir query
