@@ -69,7 +69,7 @@ jobs:
           mkdir query
           mkdir bkt
           mkdir temp
-          chmod +x autoexec*.sh
+          chmod +x *.sh
           chmod +x src/*.sh
       - name: Check space before download
         run: df
