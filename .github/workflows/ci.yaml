@@ -1,0 +1,85 @@
+name: Push Workflows
+
+on: [push]
+
+jobs:
+
+  task1:
+    name: Task 1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check space before cleanup
+        run: df -h
+      - name: Clean space as per https://github.com/actions/virtual-environments/issues/709
+        run: |
+          sudo rm -rf "/opt/ghc" || true
+          sudo rm -rf "/usr/share/dotnet" || true
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+          sudo rm -rf "/usr/local/lib/android" || true
+          sudo rm -rf "/usr/local/share/boost" || true
+      - name: Check space checkupoint cleanup
+        run: df -h
+      - name: apt-get remove cleanup
+        run: |
+          sudo apt purge -y \
+            ansible* \
+            aria2* \
+            aspnetcore* \
+            azure-cli* \
+            cabal* \
+            clang* \
+            dotnet-* \
+            firefox* \
+            gfortran-* \
+            ghc* \
+            google-chrome-stable* \
+            google-cloud-sdk* \
+            imagemagick* \
+            javascript* \
+            kubectl* \
+            llvm* \
+            mono* \
+            mysql* \
+            nginx* \
+            node* \
+            npm* \
+            nuget* \
+            php* \
+            postgresql* \
+            powershell* \
+            rpm* \
+            ruby* \
+            sqlite3* \
+            subversion \
+            temurin* \
+            tmux* \
+            vim* \
+            yarn*
+          sudo apt-get autoremove -y >/dev/null 2>&1 || true
+          sudo apt-get autoclean -y >/dev/null 2>&1 || true
+      - name: Check space after cleanup
+        run: df -h
+      - name: Install Environments
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential hdf5-tools libhdf5-dev libhdf5-serial-dev bash
+          mkdir result
+          mkdir ftr
+          mkdir query
+          mkdir bkt
+          mkdir temp
+          chmod +x *.sh
+          chmod +x src/*.sh
+      - name: Check space before download
+        run: df
+      - name: Download Task1
+        run: |
+          mkdir data
+          curl -L "https://huggingface.co/datasets/sadit/SISAP2025/resolve/main/benchmark-dev-pubmed23.h5?download=true" -o data/benchmark-dev-pubmed23.h5
+      - name: Check space after download
+        run: df
+      - name: Run Task1
+        run: bash autoexec_all.sh
+      - name: Check space after solutions
+        run: df
