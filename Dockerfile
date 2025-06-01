@@ -60,7 +60,7 @@ COPY autoexec_all.sh .
 RUN mkdir temp
 
 # シェルスクリプトに実行権限を与える
-RUN chmod +x autoexec*.sh
+RUN chmod +x *.sh
 
 # シェルスクリプトを実行
 # CMD ["./autoexec_convert_queries_pubmed23.sh"]
