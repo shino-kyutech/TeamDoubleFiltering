@@ -14,4 +14,5 @@ result/*
 result1/
 !pivot
 !src
+!LICENSE
 temp
