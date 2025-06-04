@@ -99,5 +99,5 @@ See [LICENSE](./LICENSE) for details.
 
 If you have any questions, please contact us at:
 
-- GitHub: [your-username](https://github.com/shino-kyutech)  
+- GitHub: [shino-kyutech](https://github.com/shino-kyutech/TeamDoubleFiltering)  
 - Email: [shino.kyutech@gmail.com]
