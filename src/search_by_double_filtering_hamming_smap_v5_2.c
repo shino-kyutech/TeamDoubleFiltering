@@ -52,6 +52,54 @@ void reset_filtering_cost(void) {
     filtering_cost_1st = filtering_cost_2nd = 0;
 }
 
+#ifdef STATIC_DF_WORK
+static interval_list *ivl = NULL;
+static int intial_ivl_size_1st = 0;
+static int intial_ivl_size_2nd = 0;
+static struct_que_c2_n *que = NULL;
+static answer_type *ans_buff = NULL;
+static kNN_buffer *buff_p[NUM_THREADS] = {NULL};
+
+// size_1st = 1次フィルタリングの候補リストの大きさ（区間数）の最大値（interval_list の大きさ）
+// size_2nd = 2次フィルタリンツが求める候補数の最大値（kNN_bufferの大きさ）
+void init_space_for_double_filtering(int size_1st, int size_2nd)
+{
+//  int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
+    if(ivl != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: ivl != NULL\n");
+        exit(1);
+    }
+    if(ans_buff != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: ans_buff[0] != NULL\n");
+        exit(1);
+    }
+    if(buff_p[0] != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: buff_p[0] != NULL\n");
+        exit(1);
+    }
+    if(que != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: que != NULL\n");
+        exit(1);
+    }
+    ivl = new_interval_list(NUM_THREADS, size_1st);
+    ivl->lg[0] = 0;
+    ivl->list[0].start = 0;
+    intial_ivl_size_1st = size_1st;
+    intial_ivl_size_2nd = size_2nd;
+    for(int t = 0; t < NUM_THREADS; t++) {
+        buff_p[t] = new_kNN_buffer(size_2nd);
+        buff_p[t]->buff[0].data_num = 0;
+    }
+    ans_buff = MALLOC(sizeof(answer_type) * size_2nd * NUM_THREADS);
+    ans_buff[0].data_num = 0;
+    que = MALLOC(sizeof(struct_que_c2_n));
+    for(int i = 0; i < QSIZE; i += 1024) {
+        que->element[i].key = 0;
+        que->details[i].sk = 0;
+    }
+}
+#endif
+
 // qpsmap 射影像は圧縮したままで，表関数は圧縮用を用いる．
 #if PARALLEL_ENUM == 0
 // Double-Filtering（single-thread）
@@ -478,6 +526,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 }
 #else
 
+/*
 #ifdef STATIC_DF_WORK
 static interval_list *ivl = NULL;
 static int intial_ivl_size_1st = 0;
@@ -490,7 +539,7 @@ static kNN_buffer *buff_p[NUM_THREADS] = {NULL};
 // size_2nd = 2次フィルタリンツが求める候補数の最大値（kNN_bufferの大きさ）
 void init_space_for_double_filtering(int size_1st, int size_2nd)
 {
-    int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
+//  int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
     if(ivl != NULL) {
         fprintf(stderr, "init_space_for_double_filtering error: ivl != NULL\n");
         exit(1);
@@ -525,6 +574,7 @@ void init_space_for_double_filtering(int size_1st, int size_2nd)
     }
 }
 #endif
+*/
 // Double-Filtering（multi-thread）
 // 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
 // 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
@@ -540,9 +590,9 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 	int data_num[], int num_candidates_1st, int num_candidates_2nd)
 {
 	int n = PARALLEL_ENUM;
-    int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
+//  int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
     #ifdef THREAD_PLUS
-        nnt *= (1 << THREAD_PLUS);
+        int nnt *= (1 << THREAD_PLUS);
         #if PARA_ENUM_INF == 0
             if(n > THREAD_PLUS) {
                 n = THREAD_PLUS;

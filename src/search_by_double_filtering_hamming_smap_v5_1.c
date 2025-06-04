@@ -60,6 +60,26 @@ void reset_filtering_cost(void) {
     filtering_cost_1st = filtering_cost_2nd = 0;
 }
 
+#ifdef USE_INTERVAL
+static interval_list *ivl = NULL;
+static struct_que_c2_n *que = NULL;
+
+void init_space_for_double_filtering(int num_data)
+{
+    int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
+    if(ivl == NULL) {
+        ivl = new_interval_list(nnt, num_data);
+    }
+    if(que == NULL) {
+        que = MALLOC(sizeof(struct_que_c2_n));
+        for(int i = 0; i < QSIZE; i += 1024) {
+            que->element[i].key = 0;
+            que->details[i].sk = 0;
+        }
+    }
+}
+#endif
+
 // qpsmap 射影像は圧縮したままで，表関数は圧縮用を用いる．
 #if PARALLEL_ENUM == 0
 // Double-Filtering（single-thread）
@@ -486,6 +506,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 }
 #else
 
+/*
 #ifdef USE_INTERVAL
 static interval_list *ivl = NULL;
 static struct_que_c2_n *que = NULL;
@@ -505,6 +526,7 @@ void init_space_for_double_filtering(int num_data)
     }
 }
 #endif
+*/
 // Double-Filtering（multi-thread）
 // 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
 // 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
@@ -520,9 +542,9 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 	int data_num[], int num_candidates_1st, int num_candidates_2nd)
 {
 	int n = PARALLEL_ENUM;
-    int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
+//  int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
     #ifdef THREAD_PLUS
-        nnt *= (1 << THREAD_PLUS);
+        int nnt *= (1 << THREAD_PLUS);
         #if PARA_ENUM_INF == 0
             if(n > THREAD_PLUS) {
                 n = THREAD_PLUS;
