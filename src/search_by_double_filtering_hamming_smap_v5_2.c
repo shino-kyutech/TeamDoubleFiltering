@@ -1,4 +1,3 @@
-// v5_2: フィルタリングで使用する配列などの割当てをマクロ（STATIC_DF_WORK, STATIC_KNN_BUFFER_FOR_SEARCH）による切り換える
 // v5_1: 立ち上がり（最初の質問に対する検索）が遅くなるという問題を解決
 // v5: 検索時に対話型でなく，バッチ型で動かせるように変更
 // v4: 解候補数をデータセットに対するppmdではなく，実際の候補数に変更．
@@ -51,54 +50,6 @@ double filtering_cost_1st, filtering_cost_2nd;
 void reset_filtering_cost(void) {
     filtering_cost_1st = filtering_cost_2nd = 0;
 }
-
-#ifdef STATIC_DF_WORK
-static interval_list *ivl = NULL;
-static int intial_ivl_size_1st = 0;
-static int intial_ivl_size_2nd = 0;
-static struct_que_c2_n *que = NULL;
-static answer_type *ans_buff = NULL;
-static kNN_buffer *buff_p[NUM_THREADS] = {NULL};
-
-// size_1st = 1次フィルタリングの候補リストの大きさ（区間数）の最大値（interval_list の大きさ）
-// size_2nd = 2次フィルタリンツが求める候補数の最大値（kNN_bufferの大きさ）
-void init_space_for_double_filtering(int size_1st, int size_2nd)
-{
-//  int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
-    if(ivl != NULL) {
-        fprintf(stderr, "init_space_for_double_filtering error: ivl != NULL\n");
-        exit(1);
-    }
-    if(ans_buff != NULL) {
-        fprintf(stderr, "init_space_for_double_filtering error: ans_buff[0] != NULL\n");
-        exit(1);
-    }
-    if(buff_p[0] != NULL) {
-        fprintf(stderr, "init_space_for_double_filtering error: buff_p[0] != NULL\n");
-        exit(1);
-    }
-    if(que != NULL) {
-        fprintf(stderr, "init_space_for_double_filtering error: que != NULL\n");
-        exit(1);
-    }
-    ivl = new_interval_list(NUM_THREADS, size_1st);
-    ivl->lg[0] = 0;
-    ivl->list[0].start = 0;
-    intial_ivl_size_1st = size_1st;
-    intial_ivl_size_2nd = size_2nd;
-    for(int t = 0; t < NUM_THREADS; t++) {
-        buff_p[t] = new_kNN_buffer(size_2nd);
-        buff_p[t]->buff[0].data_num = 0;
-    }
-    ans_buff = MALLOC(sizeof(answer_type) * size_2nd * NUM_THREADS);
-    ans_buff[0].data_num = 0;
-    que = MALLOC(sizeof(struct_que_c2_n));
-    for(int i = 0; i < QSIZE; i += 1024) {
-        que->element[i].key = 0;
-        que->details[i].sk = 0;
-    }
-}
-#endif
 
 // qpsmap 射影像は圧縮したままで，表関数は圧縮用を用いる．
 #if PARALLEL_ENUM == 0
@@ -526,7 +477,6 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 }
 #else
 
-/*
 #ifdef STATIC_DF_WORK
 static interval_list *ivl = NULL;
 static int intial_ivl_size_1st = 0;
@@ -574,7 +524,6 @@ void init_space_for_double_filtering(int size_1st, int size_2nd)
     }
 }
 #endif
-*/
 // Double-Filtering（multi-thread）
 // 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
 // 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
@@ -592,7 +541,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 	int n = PARALLEL_ENUM;
 //  int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
     #ifdef THREAD_PLUS
-        int nnt *= (1 << THREAD_PLUS);
+        nnt *= (1 << THREAD_PLUS);
         #if PARA_ENUM_INF == 0
             if(n > THREAD_PLUS) {
                 n = THREAD_PLUS;
@@ -970,7 +919,9 @@ int main(int argc, char *argv[])
 	char *smap_pivot_file = SMAP_PIVOT_FILE;
 	char *bucket_filename = BUCKET_FILE;
 	char *qr_file[] = {QUERY_FILE, QUERY_2ND_FILE, QUERY_3RD_FILE};
+    #ifdef SELF_EVAL
 	char *an_file[] = {ANSWER_FILE, ANSWER_2ND_FILE, ANSWER_3RD_FILE};
+    #endif
 	char *result_filename = RESULT_FILE;
     #ifdef INPUT_HYPER_PARAMETER
     FILE *fp = fopen(INPUT_HYPER_PARAMETER, "r");
@@ -1000,7 +951,9 @@ int main(int argc, char *argv[])
 
 	int num_query_files = sizeof(qr_file) / sizeof(qr_file[0]);
 	query_type *qr[num_query_files];
+    #ifdef SELF_EVAL
 	answer_type_NN *correct_answer[num_query_files];
+    #endif
 	int num_qr[num_query_files];
 	struct_dataset *ds_query[num_query_files];
 	for(int m = 0; m < num_query_files; m++) {
@@ -1017,9 +970,11 @@ int main(int argc, char *argv[])
 		for(int i = 0; i < num_qr[m]; i++) {
 			qr[m][i] = (query_type) { i, ds_query[m]->ftr_id[i].ftr };
 		}
+        #ifdef SELF_EVAL
 		correct_answer[m] = read_correct_answer_NN(an_file[m], num_qr[m]);
 		printf("read correct answer (%s) OK. ", an_file[m]);
 		use_system("VmSize");
+        #endif
 	}
 
 	#if defined(PARTITION_TYPE_QBP)
@@ -1262,7 +1217,11 @@ int main(int argc, char *argv[])
     #endif
 
     if(fp_summary != NULL) {
+        #ifdef SELF_EVAL
         fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, recall@1, recall@30, filtering, 1st(sec), 2nd(sec), kNN(sec), ave(ms/q), stdev(ms/q), min(ms/q), max(ms/q)\n");
+        #else
+        fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, filtering, 1st(sec), 2nd(sec), kNN(sec), ave(ms/q), stdev(ms/q), min(ms/q), max(ms/q)\n");
+        #endif
     }
     int trial = 0;
     while(1) {
@@ -1335,7 +1294,11 @@ int main(int argc, char *argv[])
 		int num_candidates_2nd = nc2;
         if(num_candidates_2nd <= 30) num_candidates_2nd = 30;
         fprintf(stderr, "num_data = %d, num_candidates_1st = %d, num_candidates_2nd = %d\n", num_data, num_candidates_1st, num_candidates_2nd);
+        #ifdef SELF_EVAL
         double total_filtering = 0, total_kNN = 0, total_total = 0, total_recall = 0;
+        #else
+        double total_filtering = 0, total_kNN = 0, total_total = 0;
+        #endif
 
         for(int m = 0; m < num_query_files; m++) {
 			use_system("VmSize");
@@ -1354,8 +1317,10 @@ int main(int argc, char *argv[])
             reset_filtering_cost();
 
             double trial_search_cost[num_queries];
+            #ifdef SELF_EVAL
 			int found = 0;
-            
+            #endif
+
             for(int q = 0; q < num_queries; q++) {
 
                 // 1st filtering のための query_sketch を作る．
@@ -1377,7 +1342,9 @@ int main(int argc, char *argv[])
                     // Filtering のみで，そのコストを求める．
                 #elif NUM_K == -2
                     // 実際には検索を行わず，正解情報との照合で recall を求める．
+                    #ifdef SELF_EVAL
     				found += answer_check(&correct_answer[m][q], num_candidates_2nd, data_num_candidates, top_k[q]);
+                    #endif
                 //    #define CHECK_NOT_FOUND
                     // Filteringで見つけた解候補に正解が見つからないとき，候補の実距離，射影距離（D~1）を調べる．
                     // ざっと見た限りではあるが，正解の射影距離（D~1）がかなり大きい傾向にあるようだ．
@@ -1428,9 +1395,11 @@ int main(int argc, char *argv[])
                         #else
                         search_NN_on_ram(ftr_id, &qr[m][q], num_candidates_2nd, data_num_candidates, top_k[q]);
                         #endif
+                        #ifdef SELF_EVAL
                         found += correct_answer[m][q].dist[0] == top_k[q]->buff[0].dist;
 //                      trial_found[q] = correct_answer[m][q].dist[0] == top_k[q]->buff[0].dist;
-//                      trial_dist[q] = top_k[q]->buff[0].dist;
+//                      trial_dist[q] = top_k[q]->buff[0].dist; 
+                        #endif
                     } else {
                         #ifndef FTR_ON_MAIN_MEMORY
                         search_kNN(&dh, &qr[m][q], num_candidates_2nd, data_num_candidates, top_k[q]);
@@ -1468,6 +1437,7 @@ int main(int argc, char *argv[])
 //            }
 //            #endif
 
+            #ifdef SELF_EVAL
             double recall_1 = recall_kNN_1(num_queries, correct_answer[m], top_k);
             double recall_k = recall_kNN(num_queries, correct_answer[m], top_k);
             printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q), recall_1, %.1lf, found = %d, recall_k, %.1lf\n", 
@@ -1483,7 +1453,26 @@ int main(int argc, char *argv[])
                     trial, m, PJT_DIM, QUANTIZE_BIT, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
                 #endif
             }
+            #else
+            printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q)\n", 
+                e_time_filtering, e_time_kNN, e_time_total, ave * 1000, stdev * 1000);
+            printf("filtering cost: 1st = %.4lf, 2nd = %.4lf\n", filtering_cost_1st, filtering_cost_2nd);
+            total_filtering += e_time_filtering; total_kNN += e_time_kNN, total_total += e_time_total;
+            if(fp_summary != NULL) {
+                #ifdef FTR_ON_MAIN_MEMORY
+                fprintf(fp_summary, "%d, %d, %d, %d, RAM, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf \n", 
+                    trial, m, PJT_DIM, QUANTIZE_BIT, nc1, nc2, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
+                #else
+                fprintf(fp_summary, "%d, %d, %d, %d, SSD, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf \n", 
+                    trial, m, PJT_DIM, QUANTIZE_BIT, nc1, nc2, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
+                #endif
+            }
+            #endif
+            #ifdef SELF_EVAL
             out_result_NN(result_filename, num_queries, correct_answer[m], top_k);
+            #else
+            out_result_NN(result_filename, num_queries, NULL, top_k);
+            #endif
 
 //            strcpy(result_filename2, result_filename);
 //            result_filename2 = strtok(result_filename2, ".");
@@ -1497,6 +1486,7 @@ int main(int argc, char *argv[])
 //			#endif
 			use_system("VmSize");
 		}
+        #ifdef SELF_EVAL
         #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
         printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, recall, %.1lf, conjunctive enumeration (enum = %d, supp = %d), nt = %d\n", 
                 total_filtering / num_query_files, total_kNN / num_query_files, total_total / num_query_files, total_recall / num_query_files, ENUM_DIM, SPP_BIT, 1 << PARALLEL_ENUM);
@@ -1504,13 +1494,24 @@ int main(int argc, char *argv[])
         printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, recall, %.1lf, sketch enumeration c2n, nt = %d\n", 
                 total_filtering / num_query_files, total_kNN / num_query_files, total_total / num_query_files, total_recall / num_query_files, 1 << PARALLEL_ENUM);
         #endif
+        #else
+        #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
+        printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, conjunctive enumeration (enum = %d, supp = %d), nt = %d\n", 
+                total_filtering / num_query_files, total_kNN / num_query_files, total_total / num_query_files, ENUM_DIM, SPP_BIT, 1 << PARALLEL_ENUM);
+        #else
+        printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, sketch enumeration c2n, nt = %d\n", 
+                total_filtering / num_query_files, total_kNN / num_query_files, total_total / num_query_files, 1 << PARALLEL_ENUM);
+        #endif
+        #endif
 	}
 
 // 後始末
     for(int m = 0; m < num_query_files; m++) {
         free_dataset(ds_query[m]);
         free(qr[m]);
+        #ifdef SELF_EVAL
         free(correct_answer[m]);
+        #endif
     }
 
     for(int t = 0; t < dh.num_threads; t++) {

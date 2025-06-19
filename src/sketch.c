@@ -12030,6 +12030,7 @@ void out_result_NN(char *filename, int num_queries, answer_type_NN ans[], kNN_bu
 		printf("ファイルが開けません（filename = %s, temp = %s）\n", filename, temp);
 		return;
 	}
+	#ifdef SELF_EVAL
 	fprintf(fp, "nearest_idx, nearest_dist, ans_idx[0], ans_dist[0], ans_idx[1], ans_dist[1], ... \n");
 	for(int i = 0; i < num_queries; i++) {
 		#ifndef ANSWER_DIST_FLOAT
@@ -12051,6 +12052,36 @@ void out_result_NN(char *filename, int num_queries, answer_type_NN ans[], kNN_bu
 		fprintf(fp, "%d, %.8f\n", top_k[i]->buff[k].data_num, sqrt(top_k[i]->buff[k].dist) / 500.0);
 		#endif
 	}
+	#else
+	#ifdef KNN_WITH_DISTANCE
+	fprintf(fp, "nearest_idx, nearest_dist, ans_idx[0], ans_dist[0], ans_idx[1], ans_dist[1], ... \n");
+	for(int i = 0; i < num_queries; i++) {
+		fprintf(fp, "secret, secret, ");
+		int k;
+		for(k = 0; k < top_k[i]->k - 1; k++) {
+			#ifndef ANSWER_DIST_FLOAT
+			fprintf(fp, "%d, %d,", top_k[i]->buff[k].data_num + 1, top_k[i]->buff[k].dist);
+			#else
+			fprintf(fp, "%d, %.8f,", top_k[i]->buff[k].data_num + 1, sqrt(top_k[i]->buff[k].dist) / 500.0);
+			#endif
+		}
+		#ifndef ANSWER_DIST_FLOAT
+		fprintf(fp, "%d, %d\n", top_k[i]->buff[k].data_num + 1, top_k[i]->buff[k].dist);
+		#else
+		fprintf(fp, "%d, %.8f\n", top_k[i]->buff[k].data_num + 1, sqrt(top_k[i]->buff[k].dist) / 500.0);
+		#endif
+	}
+	#else
+	// Output knns only
+	for(int i = 0; i < num_queries; i++) {
+		int k;
+		for(k = 0; k < top_k[i]->k - 1; k++) {
+			fprintf(fp, "%d, ", top_k[i]->buff[k].data_num + 1);
+		}
+		fprintf(fp, "%d\n", top_k[i]->buff[k].data_num + 1);
+	}
+	#endif
+	#endif
 	fclose(fp);
 }
 // #endif
