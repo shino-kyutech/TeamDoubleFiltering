@@ -34,11 +34,11 @@ exit 1
 fi
 
 dataset=PUBMED23
-pr_dir=./src
-ds_dir=./ftr
-qr_dir=./query
-pv_dir=./pivot
-bk_dir=./bkt
+pr_dir=/app/src
+ds_dir=/app/ftr
+qr_dir=/app/query
+pv_dir=/app/pivot
+bk_dir=/app/bkt
 
 #set -x
 
@@ -76,11 +76,11 @@ pt1=$(./src/pivot_property.sh -p $p1)
 np1=$(./src/pivot_property.sh -n $p1)
 echo partition type of 1st pivot = $pt1, number of partitioned spaces = $np1
 
-w2=$(./src/pivot_property.sh -w $p2)
+w2=$($pr_dir/pivot_property.sh -w $p2)
 echo SMAP_DIM = $w2
-d2=$(./src/pivot_property.sh -d $p2)
-pt=$(./src/pivot_property.sh -p $p2)
-np=$(./src/pivot_property.sh -n $p2)
+d2=$($pr_dir/pivot_property.sh -d $p2)
+pt=$($pr_dir/pivot_property.sh -p $p2)
+np=$($pr_dir/pivot_property.sh -n $p2)
 echo partition type of 2nd pivot = $pt, number of partitioned spaces = $np
 
 if [ $dm -ne $d2 ] ; then
@@ -136,29 +136,29 @@ else
   fi
 fi
 
-rs="$1"; shift
-
-nk="$1"; shift
-nq="$1"; shift
-qbit=$1; shift
-qrange=$1; shift
-phalf=$1; shift
-sp1="$1"; shift
-sp2="$1"; shift
-nt="$1"; shift
-enum=$1; shift
-supp=$1; shift
-interval=$1; shift
-sf=$1; shift
-sf2=$1; shift
-tp=$1; shift
-n0=$1; shift
-fo=$1; shift
-use_pd=$1; shift
-batch=$1; shift
-summary=$1; shift
-scost=$1; shift
-version=$1; shift
+rs="$1"; shift		# 結果（ログ）の出力先フォルダ（実際のファイル名は，ここでは，result.csv）
+nk="$1"; shift		# 求める近傍数（k-NNのk, PUBMED23では，30．ほかでは，ほとんど1．-2は検索しないでrecallを求める）
+nq="$1"; shift		# 質問数（0 = all）
+qbit=$1; shift		# QPSMAP の量子化ビット数（1, 2, 3, 4, 6）
+qrange=$1; shift	# 量子化の範囲．標準偏差の倍数で指定．±qrange*sigma の範囲を量子化し，それ以外は最大または最小に丸める
+phalf=$1; shift		# 部分復元距離を計算するときに，量子化値にこの値をプラスして用いる．通常 0.5 
+sp1="$1"; shift		# 1次索引（スケッチ）の部分復元距離関数 D_p の p の10倍（PUBMED23では10）
+sp2="$1"; shift		# 2次索引（QPSMAP）の部分復元距離関数 D_p の p の10倍 （PUBMED23では25，本当に25が良かったか要確認）
+nt="$1"; shift		# スレッド数（PUBMED23では，主に8を使用．1のときにはプログラムが未対応の可能性あり）
+enum=$1; shift		# Conjunctive Enumeration の初期列挙ビット数（PUBMED23では未使用）
+supp=$1; shift		# Conjunctive Enumeration の追加列挙ビット数（PUBMED23では未使用）
+interval=$1; shift	# 1次フィルタリングで求める候補リストを区間表現するかどうか（1 -> using interval, 0 -> without,
+					# 2 -> D~1, 3 -> D~1 using interval, 4 -> D~1 using interval by single-thread）（PUBMED23では3のみ使用）
+sf=$1; shift		# FACTOR_INF（PUBMED23では，1次フィルタリングで求める候補数を1.05倍まで求めるように指定）
+sf2=$1; shift		# FACTOR_INF2 (PUBMED23では，（距離下限の）下位ntビットとそれ以降を分けて列挙．共通パターンをまとめて列挙する個数を指定)
+tp=$1; shift		# (PUBMED23では，nt + tp ビットを可変部分として列挙，残りを共通パターンとして列挙，実際には 0 のみ使用)
+n0=$1; shift		# 検索までの準備でのスレッド数．0 は検索時と同じ．
+fo=$1; shift		# 検索対象データセットの点を主記憶にすべて読み込んでおくかどうか．0 -> 2次記憶においたまま，1 -> 配列に読み込んでおく
+use_pd=$1; shift	# PD (Product Decomposition 直積分解（旧：座標分割）を使用するかどうか．PUBMED23では使用（1を指定）
+batch=$1; shift		# Batch mode -> 1，nc1 と nc2 を格納したファイルを使用．0 -> 会話型モード
+summary=$1; shift	# サマリーを出力する -> ファイル名を指定（ログ出力と同じフォルダ内），しない -> NONE
+scost=$1; shift		# 処理コストのログ出力をする -> ファイル名を指定（ログ出力と同じフォルダ内），しない -> NONE
+version=$1; shift	# プログラムバージョン（PUBMED23では，v5_2）
 
 pr=search_by_double_filtering_hamming_smap_${version}
 
@@ -241,14 +241,14 @@ else
 	    fi
 	fi
 fi
+cflags="$cflags -DSELF_EVAL"
 cflags="$cflags -DNUM_THREADS=$nt"
 cflags="$cflags -DMEMORY_LIMIT=115e9"
 
-cflags="$cflags -DCOMPILE_TIME"
+cflags="$cflags -DCOMPILE_TIME"				# プログラム編集時に利用する parm.h の定義を無効にするスイッチ
 cflags="$cflags -D$dataset"
 cflags="$cflags -DFTR_DIM=$dm"
 cflags="$cflags -DPJT_DIM=$w1"
-cflags="$cflags -DNARROW_SKETCH"
 cflags="$cflags -DSMAP_DIM=$w2"
 cflags="$cflags -DENUM_DIM=$enum"
 cflags="$cflags -DSPP_BIT=$supp"
@@ -257,16 +257,16 @@ cflags="$cflags -DSECOND_FILTERING_KNN_BUFFER"
 #cflags="$cflags -DSECOND_FILTERING_SELECT"
 #cflags="$cflags -DMIN_LIST=$ml"
 #cflags="$cflags -DSTATIC_KNN_BUFFER_FOR_SEARCH"
-cflags="$cflags -DSTATIC_DF_WORK"
+#cflags="$cflags -DSTATIC_DF_WORK"
 
 cflags="$cflags -DFACTOR_INF=$sf"
 cflags="$cflags -DFACTOR_INF2=$sf2"
 
 if [ $interval -eq 1 ] ; then
     cflags="$cflags -DWITH_ENUM_TABLE"
-    cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
-    cflags="$cflags -DUSE_INTERVAL"
-    cflags="$cflags -DINTERVAL_WITH_RUN"
+#    cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
+#    cflags="$cflags -DUSE_INTERVAL"
+#    cflags="$cflags -DINTERVAL_WITH_RUN"
     cflags="$cflags -DINTERVAL_WITH_PRIORITY"
     cflags="$cflags -DLOOP_CONTROL_BY_NUM_SKETCHES"
     if [ $nt -ne 1 ] ; then
@@ -274,8 +274,9 @@ if [ $interval -eq 1 ] ; then
     fi
 #    cflags="$cflags -DFACTOR_INF=$sf"
 #    cflags="$cflags -DFACTOR_INF2=$sf2"
-elif [ $interval -eq 2 ] ; then
-    cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
+#elif [ $interval -eq 2 ] ; then
+
+#    cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
 #    cflags="$cflags -DUSE_INTERVAL"
 #    cflags="$cflags -DINTERVAL_WITH_RUN"
 #    cflags="$cflags -DINTERVAL_WITH_PRIORITY"
@@ -285,19 +286,19 @@ elif [ $interval -eq 2 ] ; then
 elif [ $interval -eq 3 ] ; then
 #    cflags="$cflags -DALTERNATIVE_ENUMERATION"
 #    cflags="$cflags -DALTERNATIVE_5"
-    cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
-    cflags="$cflags -DUSE_INTERVAL"
+#    cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
+#    cflags="$cflags -DUSE_INTERVAL"
 #    cflags="$cflags -DUSE_COMPACT_INTERVAL"
-    cflags="$cflags -DINTERVAL_WITH_RUN"
+#    cflags="$cflags -DINTERVAL_WITH_RUN"
 #    cflags="$cflags -DINTERVAL_WITH_PRIORITY"
     cflags="$cflags -DUSE_MU_COMMON"
 #    cflags="$cflags -DFACTOR_INF=$sf"
 #    cflags="$cflags -DFACTOR_INF2=$sf2"
 elif [ $interval -eq 4 ] ; then
 #   cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
-    cflags="$cflags -DUSE_INTERVAL"
-    cflags="$cflags -DINTERVAL_WITH_RUN"
-    cflags="$cflags -DINTERVAL_WITH_PRIORITY"
+#    cflags="$cflags -DUSE_INTERVAL"
+#    cflags="$cflags -DINTERVAL_WITH_RUN"
+#    cflags="$cflags -DINTERVAL_WITH_PRIORITY"
     cflags="$cflags -DUSE_MU_COMMON"
 #    cflags="$cflags -DFACTOR_INF=$sf"
 #    cflags="$cflags -DFACTOR_INF2=$sf2"
@@ -349,26 +350,23 @@ cflags="$cflags -DSCORE_P_2ND=${sp2}"
 #cflags="$cflags -DTINY_IN_CHAR"
 
 if [ $pt1 == 3 ] ; then
-cflags="$cflags -DPARTITION_TYPE_PQBP"
-cflags="$cflags -DNUM_PART=$np1"
+	cflags="$cflags -DPARTITION_TYPE_PQBP"
+	cflags="$cflags -DNUM_PART=$np1"
 else
-cflags="$cflags -DPARTITION_TYPE_QBP"
+	cflags="$cflags -DPARTITION_TYPE_QBP"
 fi
 
 if [ $pt == 3 ] ; then
-cflags="$cflags -DSMAP_PARTITION_TYPE_PQBP"
-
-if [ $use_pd -eq 0 ] ; then
-	cflags="$cflags -DSMAP_NUM_PART=$np"
+	cflags="$cflags -DSMAP_PARTITION_TYPE_PQBP"
+	if [ $use_pd -eq 0 ] ; then
+		cflags="$cflags -DSMAP_NUM_PART=$np"
+	else
+		cflags="$cflags -DSMAP_NUM_PART=1"
+		cflags="$cflags -DUSE_PD"
+		cflags="$cflags -DIGNORE_MED"
+	fi
 else
-	cflags="$cflags -DSMAP_NUM_PART=1"
-	cflags="$cflags -DUSE_PD"
-	cflags="$cflags -DIGNORE_MED"
-fi
-
-#cflags="$cflags -DSMAP_NUM_PART=$np"
-else
-cflags="$cflags -DSMAP_PARTITION_TYPE_QBP"
+	cflags="$cflags -DSMAP_PARTITION_TYPE_QBP"
 fi
 
 cflags="$cflags -DFTR_ON_${fo}"
@@ -417,7 +415,7 @@ echo $cflags
 
 prefix=pubmed23_
 
-ds=$(./src/expand_filenames.sh $prefix $range .ftr)
+ds=$($pr_dir/expand_filenames.sh $prefix $range .ftr)
 
 files=""
 for f in $ds ; do

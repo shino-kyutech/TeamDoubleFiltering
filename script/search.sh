@@ -14,6 +14,8 @@ echo "9.  #threads   = number of threads"
 exit 1
 fi
 
+script=/app/script
+
 width=$1; shift
 smap=$1; shift
 rs_dir=$1; shift
@@ -38,4 +40,4 @@ fi
 
 echo $summary
 
-./search_by_double_filtering.sh sketch_w$width QPSMAP_p$smap 00_23 otest NONE NONE $rs_dir 30 0 $qbit 2.0 0.5 10 25 $nt 7 13 3 1.05 100 0 8 $ftr 1 $batch $summary $log $version
+$script/search_by_double_filtering.sh sketch_w$width QPSMAP_p$smap 00_23 otest NONE NONE $rs_dir 30 0 $qbit 2.0 0.5 10 25 $nt 7 13 3 1.05 100 0 8 $ftr 1 $batch $summary $log $version

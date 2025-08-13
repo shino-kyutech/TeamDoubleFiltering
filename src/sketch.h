@@ -18,35 +18,11 @@
 
 #ifndef PJT_DIM
 #define PJT_DIM 16
-#define NARROW_SKETCH
-#endif
-// SKETCH_SIZE = スケッチの大きさ（NARROW_SKETCH -> 32ビット単位, WIDE_SKETCH -> 64ビット単位, EXPANDED_SKETCH -> 64ビット単位）
-// TABLE_SIZE = score計算のための表関数の表の数（8ビット毎に256の大きさの表）
-// sketch_type:	スケッチの型（32ビットまで）
-#if defined(NARROW_SKETCH)
-	#define SKETCH_SIZE 1
-	#define TABLE_SIZE 4
-	typedef unsigned int sketch_type;
-#elif defined(WIDE_SKETCH)
-	#define SKETCH_SIZE 1
-	#define TABLE_SIZE 8
-	typedef unsigned long sketch_type;
-#elif defined(EXPANDED_SKETCH)
-	#define SKETCH_SIZE ((PJT_DIM + 63) / 64)
-	#define TABLE_SIZE (SKETCH_SIZE * 8)
-	typedef unsigned long sketch_type[SKETCH_SIZE];
 #endif
 
-/*
-#ifdef PARTITION_TYPE_PQBP // 座標分割QBP（PQBP）のときは，FTR_DIMをPJT_DIM個に分割する．
-// FTR_DIMがPJT_DIMで割り切れないときは，最初の部分空間に1個ずつ座標を加える．
-// （例）FTR_DIM = 64, PJT_DIM = 6 のときは，10次元ずつで4次元分の余りがでる．
-//  最初の4空間（0から3）までは，11次元，残りは10次元の部分空間とする．
-//  0: 0 - 10, 1: 11 - 21, 2: 22 - 32, 3: 33 - 43, 4: 44 - 53, 6: 54 - 63  
-#define PART_START(j) ((FTR_DIM / PJT_DIM) * j + (j < FTR_DIM % PJT_DIM ? j : 0)) // 部分座標空間の開始次元
-#define PART_DIM(j) ((FTR_DIM / PJT_DIM) + (j < FTR_DIM % PJT_DIM ? 1 : 0)) // 部分座標空間の次元数
-#endif
-*/
+#define SKETCH_SIZE 1
+#define TABLE_SIZE 4
+typedef unsigned int sketch_type;
 
 #ifndef NUM_PART
 #define NUM_PART 1
@@ -135,27 +111,10 @@ typedef struct {
 } struct_check_result;
 #endif
 
-#ifndef USE_COMPACT_INTERVAL
 typedef struct {
-	#ifdef INTERVAL_WITH_PRIORITY
-	dist_type priority;
-	#endif
 	int start;
-	#ifdef INTERVAL_WITH_RUN
 	int run;
-	#else
-	int end;
-	#endif
 } interval;
-#else // COMPACT_INTERVAL
-typedef struct {
-	int start;
-	unsigned short run;
-	#ifdef INTERVAL_WITH_PRIORITY
-	unsigned short priority;
-	#endif
-} interval;
-#endif
 
 //	int nt;		// nt 個のスレッドで分割
 //	size;		// 各スレッドが用いる interval 配列 list の大きさ（inteval 数）
@@ -258,9 +217,7 @@ typedef struct {
 //	ftr_type *ftr_data;			// array of ftr data (NULL, if not used)
 //	sketch_type *sk;			// array of sketches (NULL, if not used)
 //	int *idx; 					// idx[i] = the original position of the i-th data in sketch order (NULL, if not used)
-//	#ifdef NARROW_SKETCH
 //	int *bkt;					// bkt[s] = The first position of the data whose sketch is s in the data arranged in the sketch order (NULL, if not used)
-//	#endif
 //	int num_nonempty_buckets;	// number of nonempty buckets = number of sk_num_pairs
 //	sk_num_pair *sk_num;		// representing nonempty buckets (NULL, if not used)
 typedef struct {
@@ -268,9 +225,7 @@ typedef struct {
 	ftr_type *ftr_data;			// array of ftr data (NULL, if not used)
 	sketch_type *sk;			// array of sketches (NULL, if not used)
 	int *idx; 					// idx[i] = the original position of the i-th data in sketch order (NULL, if not used)
-	#ifdef NARROW_SKETCH
 	int *bkt;					// bkt[s] = The first position of the data whose sketch is s in the data arranged in the sketch order (NULL, if not used)
-	#endif
 	#ifdef REVERSE_IDX
 	int *r_idx;					// r-idx[x] = the position in sketch order of the x-th data in the original dataset.
 	#endif
@@ -289,10 +244,6 @@ typedef struct {
 	int processed_buckets;		// number of processed buckets (sk_num_pairs)
 	sk_num_pair sk_num;			// next pair of sketch and number of records
 } struct_bucket_sk_num;
-
-//#ifdef NARROW_SKETCH // Priority queue for sketch enumeration only for NARROW sketches
-
-#if defined(NARROW_SKETCH)
 
 // 射影次元の部分集合を表す．
 typedef struct {
@@ -336,20 +287,12 @@ typedef struct {
     QUE_c2 element[QSIZE + 1];
     QUE_Detail_n details[QSIZE + 1];
 } struct_que_c2_n;
-#endif
 
-#ifdef EXPANDED_SKETCH
-void data_to_sketch(ftr_type o, pivot_type *pivot, sketch_type sk);
-void data_to_sketch_1bit(ftr_type o, pivot_type *pivot, int dim, sketch_type sk);
-#else
 sketch_type data_to_sketch(ftr_type o, pivot_type *pivot);
 void data_to_sketch_1bit(ftr_type o, pivot_type *pivot, int dim, sketch_type *sk);
-#endif
 pivot_type *new_pivot(int type);
 void free_pivot(pivot_type *pivot);
-// pivot_type *new_pivot_pjt_dim(int type, int pjt_dim);
 void read_pivot(const char *filename, pivot_type *pivot);
-// void read_pivot_pjt_dim(char *filename, pivot_type *pivot, int pjt_dim);
 void write_pivot(char *filename, pivot_type *pivot);
 #ifdef PRE_ROTATION
 void read_pivot_with_rotation(char *filename, pivot_type *pivot, int *rotation);
@@ -365,7 +308,6 @@ struct_bucket *read_compact_bucket(char *filename);
 struct_bucket_sk_num *open_bucket_sk_num(char *filename);
 int read_next_bucket_sk_num(struct_bucket_sk_num *bsk);
 
-#if defined(NARROW_SKETCH)
 void min_heapify_p(int i, struct_que *que);
 int deq_p(QUE *q, struct_que *que);
 void enq_p(QUE *q, struct_que *que);
@@ -377,11 +319,6 @@ int deq_c2_n(QUE_c2 *qe, struct_que_c2_n *que);
 void deq_c2_n_del(struct_que_c2_n *que);
 void enq_c2_n(QUE_c2 *qe, struct_que_c2_n *que);
 void enq_c2_n_after_deq(QUE_c2 *qe, struct_que_c2_n *que);
-#endif
-
-// struct_query_sketch *make_query_sketch(struct_dataset *ds_query, pivot_type *pivot);
-
-// query_type *new_query(void);
 
 void set_query_sketch(struct_query_sketch *qs, query_type *query, pivot_type *pivot);
 void compute_sketch_and_boundary_plus(dist_type bd_plus[][PJT_DIM], int num_queries, struct_query_sketch *qs_all, query_type *query_all, pivot_type *pivot);
@@ -400,7 +337,6 @@ dist_type hamming(sketch_type s, sketch_type t);
 void filtering_by_sequential_search_using_kNN_buffer(struct_query_sketch *qs, int num_data, sketch_type sketch[], kNN_buffer *buff, int data_num[], int num_candidates);
 void filtering_by_sequential_search_using_quick_select_k(struct_query_sketch *qs, int num_data, sketch_type sk[], dist_type sc[], int data_num[], int num_candidates);
 
-#if defined(NARROW_SKETCH)
 interval_list *new_interval_list(unsigned int nt, unsigned int size);
 void realloc_interval_list(interval_list *ivl, unsigned int size);
 vlist *new_vlist(int size, int step);
@@ -450,11 +386,6 @@ int filtering_by_sketch_enumeration_inf_data_select_once(struct_query_sketch *qs
 int filtering_by_sketch_enumeration_inf_only_sketch(struct_query_sketch *qs, struct_bucket *bucket, sketch_type sketch[], int num_candidates);
 #endif
 #endif
-#endif
-//void filtering_by_sequential_search_using_compact_bucket(struct_query_sketch *qs, int num_data, compact_bucket *bucket_ds, dist_type score[], int idx[], int data_num[], int num_candidates);
-//void filtering_by_sequential_search_n(int num_queries, struct_query_sketch qs[], int num_data, sketch_type sketch[], kNN_buffer *can[]);
-//void filtering_by_sequential_search_using_bucket();
-//void filtering_by_sketch_enumeration();
 
 int comp_sketch(sketch_type a, sketch_type b);
 int comp_uint(const void *a, const void *b);
@@ -590,16 +521,6 @@ int find_pivot_sketch_with_priority_num(sketch_with_priority_num buff[], int i, 
 int partition_by_pivot_sketch_with_priority_num(sketch_with_priority_num buff[], int i, int j, dist_type piv, int *sum);
 int quick_select_sum_k_sketch_with_priority_num(sketch_with_priority_num buff[], int i, int j, int sum);
 
-#ifdef INTERVAL_WITH_PRIORITY
-void quick_sort_interval(interval buff[], int i, int j);
-int find_pivot_interval(interval buff[], int i, int j);
-int partition_by_pivot_interval(interval buff[], int i, int j, dist_type piv, int *sum);
-int partition_by_pivot_interval_no_sum(interval buff[], int i, int j, dist_type piv);
-int quick_select_sum_k_interval(interval buff[], int i, int j, int sum);
-int quick_select_sum_k_interval_by_multi_thread(interval_list *ivl, int sum);
-// for multi-thread
-// int find_pivot_answer_mt(answer_type ans[], int i, int j);
-#endif
 int partition_by_pivot_answer_mt(answer_type ans[], int i, int j, dist_type piv);
 int quick_select_k_answer_mt(int nt, int k_th[], int size, answer_type ans[], int k);
 

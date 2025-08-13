@@ -21,13 +21,7 @@
 #include "quick.h"
 #include "e_time.h"
 
-#if defined(NARROW_SKETCH)
 #define WRITE_BIT write_bit
-#elif defined(WIDE_SKETCH)
-#define WRITE_BIT write_bit_long
-#else
-#define WRITE_BIT write_bit_expanded
-#endif
 
 #ifndef SMAP_DIM
 #define SMAP_DIM 96
@@ -45,53 +39,17 @@
 	+((0xcccccccc&((0x55555555&(n))+((0xaaaaaaaa&(n))>>1)))>>2)))+((0xf0f0f0f0&((0x33333333&((0x55555555&(n))+((0xaaaaaaaa&(n))>>1)))\
 	+((0xcccccccc&((0x55555555&(n))+((0xaaaaaaaa&(n))>>1)))>>2)))>>4)))>>8)))>>16)
 
-
-#ifdef EXPANDED_SKETCH
-
-void data_to_sketch(ftr_type o, pivot_type *pivot, sketch_type sk)
-{
-	for(int i = 0; i < SKETCH_SIZE; i++) sk[i] = 0;
-	for(int j = 0; j < PJT_DIM; j++) {
-		#if defined(PARTITION_TYYPE_QBP)
-		WRITE_BIT(j, PART_DISTANCE_PIVOT_2(o, pivot->p[j], PART_START(j), PART_DIM(j), pivot->r[j]) < pivot->r[j], sk);
-		#elif defined(PARTITION_TYPE_SQBP) || defined(PARTITION_TYPE_CSQBP)
-//		dist_type dist = sub_dist_L2_2(o, pivot, j, pivot->r[j]);
-//		printf("dist from p[%d] = %d, r[%d] = %d\n", j, dist, j, pivot->r[j]); getchar();
-		WRITE_BIT(j, sub_dist_L2_2(o, pivot, j, pivot->r[j]) < pivot->r[j], sk);
-		#else
-		WRITE_BIT(j, DISTANCE_PIVOT_2(o, pivot->p[j], FTR_DIM, pivot->r[j]) < pivot->r[j], sk);
-		#endif
-	}
-}
-
-void data_to_sketch_1bit(ftr_type o, pivot_type *pivot, int dim, sketch_type sp)
-{
-	#if defined(PARTITION_TYPE_PQBP)
-	WRITE_BIT(dim, PART_DISTANCE_PIVOT_2(o, pivot->p[dim], PART_START(dim), PART_DIM(dim), pivot->r[dim]) < pivot->r[dim], sp);
-	#elif defined(PARTITION_TYPE_SQBP) || defined(PARTITION_TYPE_CSQBP)
-	WRITE_BIT(dim, sub_dist_L2_2(o, pivot, dim, pivot->r[dim]) < pivot->r[dim], sp);	
-	#else
-	WRITE_BIT(dim, DISTANCE_PIVOT_2(o, pivot->p[dim], FTR_DIM, pivot->r[dim]) < pivot->r[dim], sp);
-	#endif
-}
-
-#else // EXPANDED_SKETCH
-// NARROW_SKETCH or WIDE_SKETCH
 sketch_type data_to_sketch(ftr_type o, pivot_type *pivot)
 {
 	sketch_type sk = 0;
 	for(int j = 0; j < PJT_DIM; j++) {
 		#ifdef USE_PD_SKETCH
-//		dist_type dist = dist_pivot_L2_2(o, pivot->p[j], pivot->num_axis[j], pivot->axis[j], pivot->r[j]);
-//		fprintf(stderr, "j = %d, dist = %u, rad = %u\n", j, dist, pivot->r[j]); getchar();
 		write_bit(j, dist_pivot_L2_2(o, pivot->p[j], pivot->num_axis[j], pivot->axis[j], pivot->r[j]) < pivot->r[j], &sk);
 		#elif defined(PARTITION_TYPE_PQBP)
 		WRITE_BIT(j, PART_DISTANCE_PIVOT_2(o, pivot->p[j], PART_START(j), PART_DIM(j), pivot->r[j]) < pivot->r[j], &sk);
 		#elif defined(PARTITION_TYPE_SQBP) || defined(PARTITION_TYPE_CSQBP)
 		WRITE_BIT(j, sub_dist_L2_2(o, pivot, j, pivot->r[j]) < pivot->r[j], &sk);
 		#else
-//		dist_type dist = DISTANCE_PIVOT_2(o, pivot->p[j], FTR_DIM, pivot->r[j]);
-//		fprintf(stderr, "j = %d, dist = %u, rad = %u\n", j, dist, pivot->r[j]); getchar();
 		WRITE_BIT(j, DISTANCE_PIVOT_2(o, pivot->p[j], FTR_DIM, pivot->r[j]) < pivot->r[j], &sk);
 		#endif
 	}
@@ -103,20 +61,13 @@ void data_to_sketch_1bit(ftr_type o, pivot_type *pivot, int dim, sketch_type *sp
 	#ifdef USE_PD_SKETCH
 	write_bit(dim, dist_pivot_L2_2(o, pivot->p[dim], pivot->num_axis[dim], pivot->axis[dim], pivot->r[dim]) < pivot->r[dim], sp);
 	#elif defined(PARTITION_TYPE_PQBP)
-//	dist_type d = PART_DISTANCE_2(o, pivot->p[dim], PART_START(dim), PART_DIM(dim), pivot->r[dim]);
-//	printf("(PQBP) dist = %d, rad = %d\n", d, pivot->r[dim]); getchar();
 	WRITE_BIT(dim, PART_DISTANCE_PIVOT_2(o, pivot->p[dim], PART_START(dim), PART_DIM(dim), pivot->r[dim])  < pivot->r[dim], sp);
 	#elif defined(PARTITION_TYPE_SQBP) || defined(PARTITION_TYPE_CSQBP)
-//	dist_type d = sub_dist_L2_2(o, pivot, dim, pivot->r[dim]);
-//	printf("(SQBP) dist = %d, rad = %d\n", d, pivot->r[dim]); getchar();
 	WRITE_BIT(dim, sub_dist_L2_2(o, pivot, dim, pivot->r[dim])  < pivot->r[dim], sp);
 	#else
-//	dist_type d = DISTANCE_2(o, pivot->p[dim], FTR_DIM, pivot->r[dim]);
-//	printf("(QBP) dist = %d, rad = %d\n", d, pivot->r[dim]); getchar();
 	WRITE_BIT(dim, DISTANCE_PIVOT_2(o, pivot->p[dim], FTR_DIM, pivot->r[dim])  < pivot->r[dim], sp);
 	#endif
 }
-#endif // NARROW and WIDE_SKETCH
 
 // ピボット（中心点と半径の対 = pivot_type）の配列を動的に確保する．
 // type は，基礎分割関数（GHP = 0, BP = 1, QBP = 2, PQBP = 3, SQBP = 4, CSQBP = 5）を指定する（現状ではQBPとPQBPのみ）．
@@ -139,23 +90,6 @@ void free_pivot(pivot_type *pivot)
 	}
 	FREE(pivot, sizeof(pivot_type));
 }
-
-// ピボット（中心点と半径の対 = pivot_type）の配列を動的に確保する．
-// 射影次元をパラメータで指定する．（double-filtering などで 2種類以上のピボットを用いるときに使用）
-// type は，基礎分割関数（GHP = 0, BP = 1, QBP = 2, PQBP = 3, SQBP = 4, CSQBP = 5）を指定する（現状ではQBPとPQBPのみ）．
-// スケッチ幅は，PJT_DIMで指定したものを用いる．
-/*
-pivot_type *new_pivot_pjt_dim(int type, int pjt_dim)
-{
-	pivot_type *pivot = MALLOC(sizeof(pivot_type));
-	for(int j = 0; j < pjt_dim; j++) {
-		pivot->p[j] = MALLOC(sizeof(ftr_element_type) * FTR_DIM);
-		pivot->r[j] = 0;
-	}
-	pivot->type = type;
-	return pivot;
-}
-*/
 
 // ピボットをファイルから読み込む．
 // 作成済みのピボットを用いて検索などを行うときに使用する．
@@ -226,66 +160,6 @@ void read_pivot(const char *filename, pivot_type *pivot)
 
 	fclose(pfp); 
 }
-
-// ピボットをファイルから読み込む．射影次元をパラメータで指定する．（double-filtering などで 2種類以上のピボットを用いるときに使用）
-// 作成済みのピボットを用いて検索などを行うときに使用する．
-// filename = ピボットを格納したファイル名（csv形式）
-// pivot = ピボットの配列（割り当ては，new_pivotなどを用いて別途行っておくこと）
-/*
-void read_pivot_pjt_dim(char *filename, pivot_type *pivot, int pjt_dim)
-{
-	FILE *pfp ;
-    char buf[100000] = {0};
-	int i, j;
-
-	pfp=fopen(filename, "r");
-	if(pfp == NULL){
-		fprintf(stderr, "cannot open pivot file = %s\n", filename);
-		exit(0);
-	}
-
-	// 基礎分割関数
-	if(fgets(buf, MAX_LEN, pfp) != NULL)
-		pivot->type = atoi(strtok(buf, ","));
-
-	printf("pivot-type = %d\n", pivot->type);
-	if(pivot->type == CSQBP) {
-		pivot->type = SQBP;
-		fprintf(stderr, "CSQBP pivot is used as SQBP pivot.\n");
-	}
-
-	// 半径
-	if(fgets(buf, MAX_LEN, pfp) != NULL) {
-		pivot->r[0] = atoi(strtok(buf, ","));
-		for(i = 1; i < pjt_dim; i++)
-			pivot->r[i] = atoi(strtok(NULL, ","));
-	}
-	
-	// 中心点
-	#ifndef PARTITION_TYPE_SQBP
-		for(i = 0; fgets(buf, MAX_LEN, pfp) != NULL; i++) {
-			pivot->p[i][0] = atoi(strtok(buf, ","));
-			for(j = 1; j < FTR_DIM; j++) {
-				pivot->p[i][j] = atoi(strtok(NULL, ","));
-			}
-		}
-	#else
-		// SQBPではピボットの使用次元（used, num_used）を求めておく．
-		// CSQBP で作成したピボットを用いるときは，PARTITION_TYPE_SQBP を定義しておくこと．
-		for(i = 0; fgets(buf, MAX_LEN, pfp) != NULL; i++) {
-			pivot->p[i][0] = atoi(strtok(buf, ","));
-			pivot->num_used[i] = 0;
-			if(pivot->p[i][0] != FTR_IGN) { pivot->used[i][pivot->num_used[i]++] = 0; }
-			for(j = 1; j < FTR_DIM; j++) {
-				pivot->p[i][j] = atoi(strtok(NULL, ","));
-				if(pivot->p[i][j] != FTR_IGN) { pivot->used[i][pivot->num_used[i]++] = j; }
-			}
-		}
-    #endif
-
-	fclose(pfp); 
-}
-*/
 
 #ifdef PRE_ROTATION
 void read_pivot_with_rotation(char *filename, pivot_type *pivot, int *rotation)
@@ -394,6 +268,7 @@ void write_pivot_with_rotation(char *filename, pivot_type *pivot, int *rotation)
 	fclose(fp);
 }
 #endif
+
 // ピボットをファイルに書き出す．
 // QBPで作成したり，AIRで最適化して作成したピボットをcsv形式で書き出す．
 // 1行目は，QBPやPQBPのtype
@@ -438,7 +313,6 @@ void write_pivot(char *filename, pivot_type *pivot)
 	fclose(fp);
 }
 
-#ifdef NARROW_SKETCH
 // 全データのスケッチ配列からバケット表（idx と bkt）を含む構造体（struct_bucket）を作成する．
 // ただし，PJT_DIM（スケッチ幅）< 32 でのみ使用すること．
 // PJT_DIMが大きいと，バケット表のための配列bktが非常に大きくなるので，使用できない．
@@ -493,103 +367,6 @@ int comp_uint(const void *a, const void *b) {
 		return 1;
 }
 
-#else
-
-#ifndef EXPANDED_SKETCH
-
-int comp_sketch(sketch_type a, sketch_type b)
-{
-	if(a < b)
-		return -1;
-	else if(a == b)
-		return 0;
-	else
-		return 1;
-}
-
-#else
-
-int comp_sketch(sketch_type a, sketch_type b)
-{
-	for(int j = 0; j < SKETCH_SIZE; j++) {
-		if(a[j] < b[j])
-			return -1;
-		else if(a[j] == b[j])
-			continue;
-		else
-			return 1;
-	}
-	return 0;
-}
-
-#endif
-
-// WIDE_SKETCH および EXPANDED_SKETCH 用（bkt は大きくなり過ぎるので使用しない）
-struct_bucket *new_bucket(int num_data, sketch_type sk[])
-// version 2.0 (using arrays only idx and bucket)
-{
-	struct_bucket *b = (struct_bucket *)malloc(sizeof(struct_bucket));
-	b->num_data = num_data;
-	b->ftr_data = NULL;
-	b->sk = NULL;
-
-	b->idx = (int *)malloc(sizeof(int) * num_data);
-	for(int i = 0; i < num_data; i++) {
-		b->idx[i] = i;
-	}
-	for(int i = 0; i < 100; i++) {
-		#ifndef EXPANDED_SKETCH
-		printf("idx[%d] = %d, sk[idx[%d]] = %lu\n", i, b->idx[i], i, sk[b->idx[i]]);
-		#else
-		printf("idx[%d] = %d, sk[idx[%d]] = ", i, b->idx[i], i);
-		for(int j = 0; j < SKETCH_SIZE; j++) {
-			printf("%lu:", sk[b->idx[i]][j]);
-		}
-		printf("\n");
-		#endif
-	}
-	fprintf(stderr, "sort sketch starts: num_data = %d\n", num_data);
-	quick_sort_for_sketch(b->idx, sk, 0, num_data - 1);
-	fprintf(stderr, "sort sketch ended: num_data = %d\n", num_data);
-	for(int jj = 0; jj < 100; jj++) {
-		int i = jj * 100;
-		#ifndef EXPANDED_SKETCH
-		printf("idx[%d] = %d, sk[idx[%d]] = %lu\n", i, b->idx[i], i, sk[b->idx[i]]);
-		#else
-		printf("idx[%d] = %d, sk[idx[%d]] = ", i, b->idx[i], i);
-		for(int j = 0; j < SKETCH_SIZE; j++) {
-			printf("%lu:", sk[b->idx[i]][j]);
-		}
-		printf("\n");
-		#endif
-	}
-
-	b->sk_num = (sk_num_pair *)malloc(sizeof(sk_num_pair) * num_data); // 少し大きめに割り当てる
-	b->num_nonempty_buckets = 0;
-	int i, j;
-//	sketch_type s;
-	sk_num_pair snp;
-	for(i = 0; i < num_data; ) {
-		#ifndef EXPANDED_SKETCH
-		snp.sk = sk[b->idx[i]];
-		#else
-		memcpy(snp.sk, sk[b->idx[i]], sizeof(sketch_type));
-		#endif
-//		for(j = i + 1; j < num_data && s == sk[b->idx[j]]; j++);
-		for(j = i + 1; j < num_data && comp_sketch(snp.sk, sk[b->idx[j]]) == 0; j++);
-		snp.num = j - i;
-		snp.pos = i;
-		b->sk_num[b->num_nonempty_buckets++] = snp; //(sk_num_pair) {s, num_elements, i};
-//		if(b->num_nonempty_buckets < 100) {
-//			printf("num_nonempty_buckets = %d, s = %lu, num = %d, i = %d\n", b->num_nonempty_buckets, s, num_elements, i);
-//		}
-		i = j;
-	}
-
-	return b;
-}
-#endif
-
 // バケット表（idx と bkt）を含む構造体（struct_bucket）をコンパクトな形式でファイルに書き出す
 // bkt は PJT_DIM (width) に対して指数オーダーなので，書き出さない．空でないバケット情報のみ書き出す．
 void write_bucket(char *filename, struct_bucket *b)
@@ -617,20 +394,11 @@ void write_bucket(char *filename, struct_bucket *b)
 		exit(0);
 	}
 	fprintf(stderr, "num_nonempty_buckets = %d, average number of elements in nonempty buckets = %.2lf\n", num_nonempty_buckets, (double)num_data / num_nonempty_buckets);
-//	sketch_type s;
-//	int num_elements;
 	for(int i = 0; i < num_nonempty_buckets; i++) {
-		#ifndef EXPANDED_SKETCH
 		if(fwrite(&sk_num[i].sk, sizeof(sketch_type), 1, fp) != 1) {  // sketch s を書き出す
 			fprintf(stderr, "fwrite error (sketch) file = %s\n", filename);
 			exit(0);
 		}
-		#else
-		if(fwrite(sk_num[i].sk, sizeof(sketch_type), 1, fp) != 1) {  // sketch s を書き出す
-			fprintf(stderr, "fwrite error (sketch) file = %s\n", filename);
-			exit(0);
-		}
-		#endif
 		if(fwrite(&sk_num[i].num, sizeof(int), 1, fp) != 1) {  // num_elements を書き出す
 			fprintf(stderr, "fwrite error (num_elements) file = %s\n", filename);
 			exit(0);
@@ -639,18 +407,7 @@ void write_bucket(char *filename, struct_bucket *b)
 	fclose(fp);
 	return;
 }
-/*
-void free_bucket(struct_bucket *b) {
-	if(b->ftr_data != NULL) free(b->ftr_data);
-	if(b->sk != NULL) free(b->sk);
-	if(b->idx != NULL) free(b->idx);
-	#ifdef NARROW_SKETCH
-	if(b->bkt != NULL) free(b->bkt);
-	#endif
-	if(b->sk_num != NULL) free(b->sk_num);
-	free(b);
-}
-*/
+
 void free_bucket(struct_bucket *b)
 {
 	int num_data = b->num_data;
@@ -659,9 +416,7 @@ void free_bucket(struct_bucket *b)
 	FREE(b->r_idx, sizeof(int) * num_data);
 	#endif
 	free(b->sk_num);
-	#ifdef NARROW_SKETCH
 	free(b->bkt);
-	#endif
 	FREE(b->idx, sizeof(int) * num_data);
 	free(b);
 }
@@ -687,7 +442,6 @@ struct_bucket *read_bucket(char *filename)
 	struct_bucket *b = (struct_bucket *)malloc(sizeof(struct_bucket));
 	b->num_data = num_data;
 	b->ftr_data = NULL;  // ここではデータセットは読み込まない．オンメモリ検索をするときには，必要に応じて ftr または sftr を読み込む
-//	b->idx = (int *)malloc(sizeof(int) * num_data);
 	b->idx = MALLOC(sizeof(int) * num_data);
 	if(fread(b->idx, sizeof(int) * num_data, 1, fp) != 1) {  // idx[num_data] を読み込む
 		fprintf(stderr, "fread error (idx, size = %ld) file = %s\n", sizeof(int) * num_data, filename);
@@ -700,28 +454,17 @@ struct_bucket *read_bucket(char *filename)
 	}
 	use_system("VmSize");
 
-	#ifdef NARROW_SKETCH
-//	fprintf(stderr, "NARROW: w = %d\n", PJT_DIM);
 	b->bkt = (int *)calloc((1L << PJT_DIM) + 2, sizeof(int));
 	if(b->bkt != NULL) {
-//		fprintf(stderr, "calloc bkt OK\n");
 	} else {
 		fprintf(stderr, "calloc bkt failed. exit!\n");
 	}
-	#endif
 	b->sk_num = (sk_num_pair *)malloc(sizeof(sk_num_pair) * b->num_nonempty_buckets);
-//	fprintf(stderr, "malloc sk_num_pair OK. num_nonempty_buckets = %d\n", b->num_nonempty_buckets);
 	int num, j;
-//	sketch_type s, s_next;
 	sk_num_pair snp;
-	#ifdef NARROW_SKETCH
 	long int s_next = 0;
-	#endif
 	num = j = 0;
 	for(int i = 0; i < b->num_nonempty_buckets; i++) {
-//		if(i % 1000000 == 0) {
-//			fprintf(stderr, "i = %d, j = %d, num = %d, s_next = %ld\n", i, j, num, s_next);
-//		}
 		if(fread(&snp.sk, sizeof(sketch_type), 1, fp) != 1) {  // sketch を読み込む
 			fprintf(stderr, "fread error (sketch) file = %s\n", filename);
 			exit(0);
@@ -732,19 +475,14 @@ struct_bucket *read_bucket(char *filename)
 		}
 		snp.pos = num;
 		b->sk_num[j++] = snp; // (sk_num_pair) {s, num_elements, num};
-		#ifdef NARROW_SKETCH
 		while(s_next <= snp.sk) {
 			b->bkt[s_next++] = num;
 		}
-		#endif
 		num += snp.num;
 	}
-//	fprintf(stderr, "read sk_num_pair OK. num_nonempty_buckets = %d\n", b->num_nonempty_buckets);
-	#ifdef NARROW_SKETCH
 	while(s_next < (1L << PJT_DIM) + 2) {
 		b->bkt[s_next++] = num;
 	}
-	#endif
 
 	#ifdef REVERSE_IDX
 	b->r_idx = MALLOC(sizeof(int) * num_data);
@@ -757,11 +495,9 @@ struct_bucket *read_bucket(char *filename)
 	fprintf(stderr, "num_nonempty_buckets = %d, average number of elements in nonempty buckets = %.2lf\n", b->num_nonempty_buckets, (double)num_data / b->num_nonempty_buckets);
 	fclose(fp);
 
-//	b->sk = (sketch_type *)malloc(sizeof(sketch_type) * num_data);
 	b->sk = MALLOC(sizeof(sketch_type) * num_data);
 	for(int i = 0; i < b->num_nonempty_buckets; i++) {
 		for(int j = b->sk_num[i].pos; j < b->sk_num[i].pos + b->sk_num[i].num; j++) {
-//			b->sk[b->idx[j]] = b->sk_num[i].sk;
 			memcpy(&b->sk[b->idx[j]], &b->sk_num[i].sk, sizeof(sketch_type));
 		}
 	}
@@ -807,9 +543,7 @@ struct_bucket *read_compact_bucket(char *filename)
 	struct_bucket *b = (struct_bucket *)malloc(sizeof(struct_bucket));
 	b->num_data = num_data;
 	b->ftr_data = NULL;  // ここではデータセットは読み込まない．オンメモリ検索をするときには，必要に応じて ftr または sftr を読み込む
-	#ifdef NARROW_SKETCH
 	b->bkt = NULL; // bkt は配列に展開しない
-	#endif
 	b->idx = (int *)malloc(sizeof(int) * num_data);
 	if(fread(b->idx, sizeof(int) * num_data, 1, fp) != 1) {  // idx[num_data] を読み込む
 		fprintf(stderr, "fread error (idx, size = %ld) file = %s\n", sizeof(int) * num_data, filename);
@@ -821,55 +555,27 @@ struct_bucket *read_compact_bucket(char *filename)
 		exit(0);
 	}
 
-//	b->sk_num = (sk_num_pair *)malloc(b->num_nonempty_buckets * sizeof(sk_num_pair));
 	b->sk_num = NULL; // おそらく不要なので，動作確認したら，このメンバを削除できるかも
 	b->sk = (sketch_type *)malloc(sizeof(sketch_type) * num_data);
 	int offset = 0;
 	sk_num_pair snp;
-//	sketch_type s;
 	for(int i = 0; i < b->num_nonempty_buckets; i++) {
-		#ifndef EXPANDED_SKETCH
 		if(fread(&snp.sk, sizeof(sketch_type), 1, fp) != 1) {  // sketch を読み込む
 			fprintf(stderr, "fread error (sketch) file = %s\n", filename);
 			exit(0);
 		}
-		#else
-		if(fread(snp.sk, sizeof(sketch_type), 1, fp) != 1) {  // sketch を読み込む
-			fprintf(stderr, "fread error (expanded sketch) file = %s\n", filename);
-			exit(0);
-		}
-		#endif
 		if(fread(&snp.num, sizeof(int), 1, fp) != 1) {  // num_elements を読み込む
 			fprintf(stderr, "fread error (num_elements) file = %s\n", filename);
 			exit(0);
 		}
 		snp.pos = offset;
-//		b->sk_num[i] = snp; // (sk_num_pair) {s, num_elements, offset};
 		for(int j = snp.pos; j < snp.pos + snp.num; j++) {
-			#ifndef EXPANDED_SKETCH
 			b->sk[b->idx[j]] = snp.sk;
-			#else
-			memcpy(b->sk[b->idx[j]], snp.sk, sizeof(sketch_type));
-			#endif
 		}
 		offset += snp.num;
 	}
 	fprintf(stderr, "num_nonempty_buckets = %d, average number of elements in nonempty buckets = %.2lf\n", b->num_nonempty_buckets, (double)num_data / b->num_nonempty_buckets);
 	fclose(fp);
-/*
-	b->sk = (sketch_type *)malloc(sizeof(sketch_type) * num_data);
-	for(int i = 0; i < b->num_nonempty_buckets; i++) {
-//		printf("# i = %d, pos = %d, num = %d\n", i, b->sk_num[i].pos, b->sk_num[i].num);
-		for(int j = b->sk_num[i].pos; j < b->sk_num[i].pos + b->sk_num[i].num; j++) {
-//			printf("i = %d, j = %d\n", i, j);
-			#ifndef EXPANDED_SKETCH
-			b->sk[b->idx[j]] = b->sk_num[i].sk;
-			#else
-			memcpy(b->sk[b->idx[j]], b->sk_num[i].sk, sizeof(sketch_type));
-			#endif
-		}
-	}
-*/
 	return b;
 }
 
@@ -882,35 +588,24 @@ struct_bucket_sk_num *open_bucket_sk_num(char *filename)
 		fprintf(stderr, "Read open bucket file error, file name = %s\n", filename);
 		exit(0);
 	}
-
 	int num_data;
 	if(fread(&num_data, sizeof(int), 1, bsk->fp) != 1) {  // ファイルに書かれている num_data を読み込む
 		fprintf(stderr, "fread error (num_data) file = %s\n", filename);
 		exit(0);
 	}
-
 	bsk->num_data = num_data;
 	if(fseek(bsk->fp, (long)(sizeof(int) * num_data), SEEK_CUR) != 0) {  // idx[num_data] を読み飛ばす
 		fprintf(stderr, "fseek error (to skip ibk, size = %ld, file = %s)\n", sizeof(int) * num_data, filename);
 		exit(0);
 	}
-
 	if(fread(&bsk->num_nonempty_buckets, sizeof(int), 1, bsk->fp) != 1) {  // ファイルに書かれている num_nonempty_buckets を読み込む
 		fprintf(stderr, "fread error (num_nonempty_buckets) file = %s\n", filename);
 		exit(0);
 	}
-
-	#ifndef EXPANDED_SKETCH
 	if(fread(&bsk->sk_num.sk, sizeof(sketch_type), 1, bsk->fp) != 1) {  // sketch を読み込む
 		fprintf(stderr, "fread error (sketch) file = %s\n", filename);
 		exit(0);
 	}
-	#else
-	if(fread(bsk->sk_num.sk, sizeof(sketch_type), 1, bsk->fp) != 1) {  // sketch を読み込む
-		fprintf(stderr, "fread error (expanded sketch) file = %s\n", filename);
-		exit(0);
-	}
-	#endif
 	if(fread(&bsk->sk_num.num, sizeof(int), 1, bsk->fp) != 1) {  // num_elements を読み込む
 		fprintf(stderr, "fread error (num_elements) file = %s\n", filename);
 		exit(0);
@@ -926,17 +621,10 @@ int read_next_bucket_sk_num(struct_bucket_sk_num *bsk)
 	if(++bsk->processed_buckets >= bsk->num_nonempty_buckets) {
 		return 0;	// EOF (all sk_num_pairs are processed)
 	}
-	#ifndef EXPANDED_SKETCH
 	if(fread(&bsk->sk_num.sk, sizeof(sketch_type), 1, bsk->fp) != 1) {  // sketch を読み込む
 		fprintf(stderr, "fread error (sketch) file = %s, num_nonempty_buckets = %d, processed_buckets = %d\n", bsk->filename, bsk->num_nonempty_buckets, bsk->processed_buckets);
 		exit(0);
 	}
-	#else
-	if(fread(bsk->sk_num.sk, sizeof(sketch_type), 1, bsk->fp) != 1) {  // sketch を読み込む
-		fprintf(stderr, "fread error (expanded sketch) file = %s, num_nonempty_buckets = %d, processed_buckets = %d\n", bsk->filename, bsk->num_nonempty_buckets, bsk->processed_buckets);
-		exit(0);
-	}
-	#endif
 	if(fread(&bsk->sk_num.num, sizeof(int), 1, bsk->fp) != 1) {  // num_elements を読み込む
 		fprintf(stderr, "fread error (num_elements) file = %s, num_nonempty_buckets = %d, processed_buckets = %d\n", bsk->filename, bsk->num_nonempty_buckets, bsk->processed_buckets);
 		exit(0);
@@ -944,8 +632,6 @@ int read_next_bucket_sk_num(struct_bucket_sk_num *bsk)
 
 	return 1;
 }
-
-#if defined(NARROW_SKETCH)
 
 #define PARENT(i) ((i)>>1)
 #define LEFT(i)   ((i)<<1)
@@ -1074,23 +760,14 @@ void enq_c2_n_after_deq(QUE_c2 *qe, struct_que_c2_n *que)
     que->element[0] = *qe;
     min_heapify_c2_n(0, que);
 }
-#endif // NARROW_SKETCH
 
 // 質問 query (質問番号，ftr) のための構造体（スケッチなどを準備する
 // 正解（最近傍）に関するメンバ(answerとanswer_sketch)の設定は行わない
 void set_query_sketch(struct_query_sketch *qs, query_type *query, pivot_type *pivot)
 {
 	qs->query = *query;
-	#if defined(NARROW_SKETCH)
 	qs->sketch = 0;
 	int tbl_size = 4;
-	#elif defined(WIDE_SKETCH)
-	qs->sketch = 0;
-	int tbl_size = 8;
-	#else
-	for(int i = 0; i < SKETCH_SIZE; i++) qs->sketch[i] = 0;
-	int tbl_size = TABLE_SIZE;
-	#endif
 	for(int p = 0; p < tbl_size; p++) {
 		for(int n = 0; n < 256; n++) {
 			qs->tbl[p][n] = 0;
@@ -1103,11 +780,7 @@ void set_query_sketch(struct_query_sketch *qs, query_type *query, pivot_type *pi
 			#else
 			dist_type dist = PART_DISTANCE(query->ftr, pivot->p[j], PART_START(j), PART_DIM(j));
 			#endif
-			#ifndef EXPANDED_SKETCH
 			WRITE_BIT(j, dist < pivot->r[j], &qs->sketch);
-			#else
-			WRITE_BIT(j, dist < pivot->r[j], qs->sketch);
-			#endif
 		}
 	#else // score_1, score_2, score_inf
 		for(int j = 0; j < PJT_DIM; j++) qs->idx[j] = j;
@@ -1117,11 +790,7 @@ void set_query_sketch(struct_query_sketch *qs, query_type *query, pivot_type *pi
 			#else
 			dist_type dist = PART_DISTANCE(query->ftr, pivot->p[j], PART_START(j), PART_DIM(j));
 			#endif
-			#ifndef EXPANDED_SKETCH
 			WRITE_BIT(j, dist < pivot->r[j], &qs->sketch);
-			#else
-			WRITE_BIT(j, dist < pivot->r[j], qs->sketch);
-			#endif
 			#ifndef SQRT_FTR
 				#ifdef SCORE_2
 				qs->bd[j] = fabs(sqrt(dist) - sqrt(pivot->r[j])) * fabs(sqrt(dist) - sqrt(pivot->r[j])); // score_2
@@ -1163,13 +832,7 @@ void compute_sketch_and_boundary_plus(dist_type bd_plus[][PJT_DIM], int num_quer
 		query_type *query = &query_all[q];
 		qs->query = *query;
 		// 質問のsketchをゼロクリアする
-		#if defined(NARROW_SKETCH)
 		qs->sketch = 0;
-		#elif defined(WIDE_SKETCH)
-		qs->sketch = 0;
-		#else
-		for(int i = 0; i < SKETCH_SIZE; i++) qs->sketch[i] = 0;
-		#endif
 		for(int j = 0; j < PJT_DIM; j++) {
 			// dist = j-bit のピボット中心と質問[q]の距離（PQBPでは部分距離）
 			#if defined(PARTITION_TYPE_PQBP)
@@ -1180,11 +843,7 @@ void compute_sketch_and_boundary_plus(dist_type bd_plus[][PJT_DIM], int num_quer
 			dist_type dist = DISTANCE(query->ftr, pivot->p[j], FTR_DIM); // 未対応
 			#endif
 			// 質問のsketchの j-bit 目をセットする．
-			#ifndef EXPANDED_SKETCH
 			WRITE_BIT(j, dist < pivot->r[j], &qs->sketch);
-			#else
-			WRITE_BIT(j, dist < pivot->r[j], qs->sketch);
-			#endif
 			#ifndef SQRT_FTR
 			double bd = fabs(sqrt(dist) - sqrt(pivot->r[j])); // query と j-bit の分割境界との最小距離
 			#else
@@ -1223,13 +882,7 @@ void compute_sketch_and_boundary_plus(dist_type bd_plus[][PJT_DIM], int num_quer
 void set_query_sketch_p_boundary_plus(dist_type bd_plus[PJT_DIM], struct_query_sketch *qs, query_type *query, pivot_type *pivot, double p)
 {
 	qs->query = *query;
-	#if defined(NARROW_SKETCH)
 	int tbl_size = 4;
-	#elif defined(WIDE_SKETCH)
-	int tbl_size = 8;
-	#else
-	int tbl_size = TABLE_SIZE;
-	#endif
 	for(int p = 0; p < tbl_size; p++) {
 		for(int n = 0; n < 256; n++) {
 			qs->tbl[p][n] = 0;
@@ -1265,13 +918,7 @@ void compute_query_sketch_and_ave_stdev_bd_of_pjt_dim(double ave[], double stdev
 	for(int q = 0; q < num_queries; q++) {
 		query_sketch[q].query = query[q];
 		// 質問のsketchをゼロクリアする
-		#if defined(NARROW_SKETCH)
 		query_sketch[q].sketch = 0;
-		#elif defined(WIDE_SKETCH)
-		query_sketch[q].sketch = 0;
-		#else
-		for(int i = 0; i < SKETCH_SIZE; i++) query_sketch[q].sketch[i] = 0;
-		#endif
 		for(int j = 0; j < PJT_DIM; j++) {
 			// dist = j-bit のピボット中心と質問[q]の距離（PQBPでは部分距離）
 			#if defined(PARTITION_TYPE_PQBP)
@@ -1282,11 +929,7 @@ void compute_query_sketch_and_ave_stdev_bd_of_pjt_dim(double ave[], double stdev
 			dist_type dist = DISTANCE(query[q].ftr, pivot->p[j], FTR_DIM); // 未対応
 			#endif
 			// 質問のsketchの j-bit 目をセットする．
-			#ifndef EXPANDED_SKETCH
 			WRITE_BIT(j, dist < pivot->r[j], &query_sketch[q].sketch);
-			#else
-			WRITE_BIT(j, dist < pivot->r[j], query_sketch[q].sketch);
-			#endif
 			#ifndef SQRT_FTR
 				sum[j] += sqrt(dist);
 				sum2[j] += dist;
@@ -1312,13 +955,7 @@ void compute_query_sketch_and_ave0_ave1_of_pjt_dim(double ave0[], double ave1[],
 	for(int q = 0; q < num_queries; q++) {
 		query_sketch[q].query = query[q];
 		// 質問のsketchをゼロクリアする
-		#if defined(NARROW_SKETCH)
 		query_sketch[q].sketch = 0;
-		#elif defined(WIDE_SKETCH)
-		query_sketch[q].sketch = 0;
-		#else
-		for(int i = 0; i < SKETCH_SIZE; i++) query_sketch[q].sketch[i] = 0;
-		#endif
 		for(int j = 0; j < PJT_DIM; j++) {
 			// dist = j-bit のピボット中心と質問[q]の距離（PQBPでは部分距離）
 			#if defined(PARTITION_TYPE_PQBP)
@@ -1329,11 +966,7 @@ void compute_query_sketch_and_ave0_ave1_of_pjt_dim(double ave0[], double ave1[],
 			dist_type dist = DISTANCE(query[q].ftr, pivot->p[j], FTR_DIM); // 未対応
 			#endif
 			// 質問のsketchの j-bit 目をセットする．
-			#ifndef EXPANDED_SKETCH
 			WRITE_BIT(j, dist < pivot->r[j], &query_sketch[q].sketch);
-			#else
-			WRITE_BIT(j, dist < pivot->r[j], query_sketch[q].sketch);
-			#endif
 			#ifndef SQRT_FTR
 				if(dist < pivot->r[j]) {
 					num1[j]++;
@@ -1366,13 +999,7 @@ void compute_query_sketch_and_ave0_ave1_of_pjt_dim(double ave0[], double ave1[],
 // query_sketch の 表関数を作成する（plus stdev）
 void set_query_sketch_p_plus_sd(double ave[], double stdev[], struct_query_sketch *query_sketch, double p)
 {
-	#if defined(NARROW_SKETCH)
 	int tbl_size = 4;
-	#elif defined(WIDE_SKETCH)
-	int tbl_size = 8;
-	#else
-	int tbl_size = TABLE_SIZE;
-	#endif
 
 	for(int p = 0; p < tbl_size; p++) {
 		for(int n = 0; n < 256; n++) {
@@ -1420,13 +1047,7 @@ void set_query_sketch_p_plus_sd(double ave[], double stdev[], struct_query_sketc
 // query_sketch の 表関数を作成する（using ave0 and ave1）
 void set_query_sketch_p_ave0_ave1(double ave0[], double ave1[], struct_query_sketch *query_sketch, double p)
 {
-	#if defined(NARROW_SKETCH)
 	int tbl_size = 4;
-	#elif defined(WIDE_SKETCH)
-	int tbl_size = 8;
-	#else
-	int tbl_size = TABLE_SIZE;
-	#endif
 
 	for(int p = 0; p < tbl_size; p++) {
 		for(int n = 0; n < 256; n++) {
@@ -1471,16 +1092,8 @@ void set_query_sketch_p_ave0_ave1(double ave0[], double ave1[], struct_query_ske
 void set_query_sketch_p(struct_query_sketch *qs, query_type *query, pivot_type *pivot, double p)
 {
 	qs->query = *query;
-	#if defined(NARROW_SKETCH)
 	qs->sketch = 0;
 	int tbl_size = 4;
-	#elif defined(WIDE_SKETCH)
-	qs->sketch = 0;
-	int tbl_size = 8;
-	#else
-	for(int i = 0; i < SKETCH_SIZE; i++) qs->sketch[i] = 0;
-	int tbl_size = TABLE_SIZE;
-	#endif
 	for(int p = 0; p < tbl_size; p++) {
 		for(int n = 0; n < 256; n++) {
 			qs->tbl[p][n] = 0;
@@ -1497,11 +1110,7 @@ void set_query_sketch_p(struct_query_sketch *qs, query_type *query, pivot_type *
 		#else
 		dist_type dist = DISTANCE_PIVOT(query->ftr, pivot->p[j], FTR_DIM);
 		#endif
-		#ifndef EXPANDED_SKETCH
 		WRITE_BIT(j, dist < pivot->r[j], &qs->sketch);
-		#else
-		WRITE_BIT(j, dist < pivot->r[j], qs->sketch);
-		#endif
 
 		#ifndef SQRT_FTR
 			if(p != DBL_MAX) {
@@ -1512,7 +1121,6 @@ void set_query_sketch_p(struct_query_sketch *qs, query_type *query, pivot_type *
 		#else
 			if(p != DBL_MAX) {
 				qs->bd[j] = pow(fabs((int)dist - (int)pivot->r[j]), p); // score_p
-//				fprintf(stderr, "(2) set_query_sketch_p: p = %lf: bd[%d] = %d, dist = %d, r = %d\n", p, j, qs->bd[j], dist, pivot->r[j]);
 			} else {
 				qs->bd[j] = fabs((int)dist - (int)pivot->r[j]); // score_inf
 			}
@@ -1544,27 +1152,10 @@ void set_query_sketch_p(struct_query_sketch *qs, query_type *query, pivot_type *
 
 dist_type priority(sketch_type s, struct_query_sketch *q)
 {
-#ifndef SCORE_INF// score_1 or score_2
-	#ifndef EXPANDED_SKETCH
+	#ifndef SCORE_INF// score_1 or score_2
 		sketch_type d = s ^ q->sketch;
-		#if defined(NARROW_SKETCH)
 		return q->tbl[0][d & 0xff] + q->tbl[1][(d >> 8) & 0xff] + q->tbl[2][(d >> 16) & 0xff] + q->tbl[3][d >> 24];
-		#else
-		return q->tbl[0][d & 0xff] + q->tbl[1][(d >> 8) & 0xff] + q->tbl[2][(d >> 16) & 0xff] + q->tbl[3][(d >> 24) & 0xff]
-			+ q->tbl[4][(d >> 32) & 0xff] + q->tbl[5][(d >> 40) & 0xff] + q->tbl[6][(d >> 48) & 0xff] + q->tbl[7][d >> 56];
-		#endif
-	#else
-		dist_type p = 0;
-		unsigned long d;
-		for(int i = 0; i < SKETCH_SIZE; i++) {
-			d = s[i] ^ q->sketch[i];
-			p += q->tbl[i * 8 + 0][d & 0xff] + q->tbl[i * 8 + 1][(d >> 8) & 0xff] + q->tbl[i * 8 + 2][(d >> 16) & 0xff] + q->tbl[i * 8 + 3][(d >> 24) & 0xff]
-				+ q->tbl[i * 8 + 4][(d >> 32) & 0xff] + q->tbl[i * 8 + 5][(d >> 40) & 0xff] + q->tbl[i * 8 + 6][(d >> 48) & 0xff] + q->tbl[i * 8 + 7][d >> 56];
-		}
-		return p;
-	#endif
-#else// score_inf
-	#ifndef EXPANDED_SKETCH
+	#else // score_inf
 		sketch_type d = s ^ q->sketch;
 		dist_type inf = 0;
 
@@ -1572,117 +1163,27 @@ dist_type priority(sketch_type s, struct_query_sketch *q)
 		inf = inf >= q->tbl[1][(d >>  8) & 0xff] ? inf : q->tbl[1][(d >> 8 ) & 0xff];
 		inf = inf >= q->tbl[2][(d >> 16) & 0xff] ? inf : q->tbl[2][(d >> 16) & 0xff];
 		inf = inf >= q->tbl[3][(d >> 24) & 0xff] ? inf : q->tbl[3][(d >> 24) & 0xff];
-		#ifdef WIDE_SKETCH
-		inf = inf >= q->tbl[4][(d >> 32) & 0xff] ? inf : q->tbl[4][(d >> 32) & 0xff];
-		inf = inf >= q->tbl[5][(d >> 40) & 0xff] ? inf : q->tbl[5][(d >> 40) & 0xff];
-		inf = inf >= q->tbl[6][(d >> 48) & 0xff] ? inf : q->tbl[6][(d >> 48) & 0xff];
-		inf = inf >= q->tbl[7][ d >> 56        ] ? inf : q->tbl[7][ d >> 56        ];
-		#endif
 		return inf;
-	#else
-		dist_type p = 0, inf;
-		unsigned long d;
-		for(int i = 0; i < SKETCH_SIZE; i++) {
-			d = s[i] ^ q->sketch[i];
-			inf = q->tbl[0][d & 0xff];
-			inf = inf >= q->tbl[1][(d >>  8) & 0xff] ? inf : q->tbl[1][(d >> 8 ) & 0xff];
-			inf = inf >= q->tbl[2][(d >> 16) & 0xff] ? inf : q->tbl[2][(d >> 16) & 0xff];
-			inf = inf >= q->tbl[3][(d >> 24) & 0xff] ? inf : q->tbl[3][(d >> 24) & 0xff];
-			inf = inf >= q->tbl[4][(d >> 32) & 0xff] ? inf : q->tbl[4][(d >> 32) & 0xff];
-			inf = inf >= q->tbl[5][(d >> 40) & 0xff] ? inf : q->tbl[5][(d >> 40) & 0xff];
-			inf = inf >= q->tbl[6][(d >> 48) & 0xff] ? inf : q->tbl[6][(d >> 48) & 0xff];
-			inf = inf >= q->tbl[7][ d >> 56        ] ? inf : q->tbl[7][ d >> 56        ];
-			p = p >= inf ? p : inf;
-		}
-		return p;
-	#endif
-#endif	
+	#endif	
 }
 
 dist_type priority_inf(sketch_type s, struct_query_sketch *q)
 {
-	#ifndef EXPANDED_SKETCH
-		sketch_type d = s ^ q->sketch;
-		dist_type inf = 0;
-
-		inf = q->tbl[0][d & 0xff];
-		inf = inf >= q->tbl[1][(d >>  8) & 0xff] ? inf : q->tbl[1][(d >> 8 ) & 0xff];
-		inf = inf >= q->tbl[2][(d >> 16) & 0xff] ? inf : q->tbl[2][(d >> 16) & 0xff];
-		inf = inf >= q->tbl[3][(d >> 24) & 0xff] ? inf : q->tbl[3][(d >> 24) & 0xff];
-		#ifdef WIDE_SKETCH
-		inf = inf >= q->tbl[4][(d >> 32) & 0xff] ? inf : q->tbl[4][(d >> 32) & 0xff];
-		inf = inf >= q->tbl[5][(d >> 40) & 0xff] ? inf : q->tbl[5][(d >> 40) & 0xff];
-		inf = inf >= q->tbl[6][(d >> 48) & 0xff] ? inf : q->tbl[6][(d >> 48) & 0xff];
-		inf = inf >= q->tbl[7][ d >> 56        ] ? inf : q->tbl[7][ d >> 56        ];
-		#endif
-		return inf;
-	#else
-		dist_type p = 0, inf;
-		unsigned long d;
-		for(int i = 0; i < SKETCH_SIZE; i++) {
-			d = s[i] ^ q->sketch[i];
-			inf = q->tbl[0][d & 0xff];
-			inf = inf >= q->tbl[1][(d >>  8) & 0xff] ? inf : q->tbl[1][(d >> 8 ) & 0xff];
-			inf = inf >= q->tbl[2][(d >> 16) & 0xff] ? inf : q->tbl[2][(d >> 16) & 0xff];
-			inf = inf >= q->tbl[3][(d >> 24) & 0xff] ? inf : q->tbl[3][(d >> 24) & 0xff];
-			inf = inf >= q->tbl[4][(d >> 32) & 0xff] ? inf : q->tbl[4][(d >> 32) & 0xff];
-			inf = inf >= q->tbl[5][(d >> 40) & 0xff] ? inf : q->tbl[5][(d >> 40) & 0xff];
-			inf = inf >= q->tbl[6][(d >> 48) & 0xff] ? inf : q->tbl[6][(d >> 48) & 0xff];
-			inf = inf >= q->tbl[7][ d >> 56        ] ? inf : q->tbl[7][ d >> 56        ];
-			p = p >= inf ? p : inf;
-		}
-		return p;
-	#endif
-}
-
-/*
-dist_type priority_partitioned(sketch_type s, struct_query_sketch *q)
-{
-// PART_START(p), PART_DIM(p), PART_END(p), PART_PJT_DIM(p) 射影次元（p = 0, ... , PJT_DIM - 1）に対応する部分空間の
-// 開始次元番号, 次元数, 最終次元番号, 射影次元数
-#ifndef EXPANDED_SKETCH
 	sketch_type d = s ^ q->sketch;
-	dist_type score = 0;
-	for(int p = 0; p < PJT_DIM; ) {
-		dist_type score_part = 0;
-		for(int q = PART_START(p); q <= PART_END(p); q++) ;
-	}
-	#if defined(NARROW_SKETCH)
-	return q->tbl[0][d & 0xff] + q->tbl[1][(d >> 8) & 0xff] + q->tbl[2][(d >> 16) & 0xff] + q->tbl[3][d >> 24];
-	#else
-	return q->tbl[0][d & 0xff] + q->tbl[1][(d >> 8) & 0xff] + q->tbl[2][(d >> 16) & 0xff] + q->tbl[3][(d >> 24) & 0xff]
-	     + q->tbl[4][(d >> 32) & 0xff] + q->tbl[5][(d >> 40) & 0xff] + q->tbl[6][(d >> 48) & 0xff] + q->tbl[7][d >> 56];
-	#endif
-#else
-	dist_type p = 0;
-	unsigned long d;
-	for(int i = 0; i < SKETCH_SIZE; i++) {
-		d = s[i] ^ q->sketch[i];
-		p += q->tbl[i * 8 + 0][d & 0xff] + q->tbl[i * 8 + 1][(d >> 8) & 0xff] + q->tbl[i * 8 + 2][(d >> 16) & 0xff] + q->tbl[i * 8 + 3][(d >> 24) & 0xff]
-		     + q->tbl[i * 8 + 4][(d >> 32) & 0xff] + q->tbl[i * 8 + 5][(d >> 40) & 0xff] + q->tbl[i * 8 + 6][(d >> 48) & 0xff] + q->tbl[i * 8 + 7][d >> 56];
-	}
-	return p;
-#endif
+	dist_type inf = 0;
+
+	inf = q->tbl[0][d & 0xff];
+	inf = inf >= q->tbl[1][(d >>  8) & 0xff] ? inf : q->tbl[1][(d >> 8 ) & 0xff];
+	inf = inf >= q->tbl[2][(d >> 16) & 0xff] ? inf : q->tbl[2][(d >> 16) & 0xff];
+	inf = inf >= q->tbl[3][(d >> 24) & 0xff] ? inf : q->tbl[3][(d >> 24) & 0xff];
+	return inf;
+
 }
-*/
+
 dist_type hamming(sketch_type s, sketch_type t)
 {
-#ifndef EXPANDED_SKETCH
 	sketch_type d = s ^ t;
-	#if defined(NARROW_SKETCH)
 	return bit_count(d);
-	#else
-	return bit_count_long(d);
-	#endif
-#else
-	dist_type h = 0;
-	unsigned long d;
-	for(int i = 0; i < SKETCH_SIZE; i++) {
-		d = s[i] ^ t[i];
-		h += bit_count_long(d);
-	}
-	return h;
-#endif
 }
 
 #ifndef WITHOUT_FILTERING
@@ -1738,8 +1239,6 @@ void filtering_by_sequential_search_using_quick_select_k(struct_query_sketch *qs
 	#endif
 }
 
-#if defined(NARROW_SKETCH)
-
 interval_list *new_interval_list(unsigned int nt, unsigned int size)
 {
 	interval_list *il = MALLOC(sizeof(interval_list));
@@ -1762,7 +1261,6 @@ void realloc_interval_list(interval_list *ivl, unsigned int size) {
 	ivl->list = MALLOC(sizeof(interval) * ivl->nt * ivl->size);
 }
 
-#ifdef INTERVAL_WITH_RUN
 vlist *new_vlist(int size, int step) {
 	vlist *vl = MALLOC(sizeof(vlist));
 	vl->size = size;
@@ -1774,7 +1272,6 @@ vlist *new_vlist(int size, int step) {
 }
 
 void add_vlist(vlist *vl, interval i) {
-//	fprintf(stderr, "(0) vl: size = %d, num_list = %d, num_data = %d, elm = %p\n", vl->size, vl->num_list, vl->num_data, vl->elm);
 	if(vl->num_list >= vl->size) {
 		int psize = vl->size;
 		interval *pelm = vl->elm;
@@ -1782,19 +1279,15 @@ void add_vlist(vlist *vl, interval i) {
 		vl->elm = MALLOC(sizeof(interval) * vl->size);
 		memcpy(vl->elm, pelm, sizeof(interval) * psize);
 		FREE(pelm, sizeof(interval) * psize);
-//		fprintf(stderr, "vlist extended: %d => %d (pr = %d)\n", psize, vl->size, vl->elm[0].priority); // getchar();
 	}
 	vl->elm[vl->num_list++] = i;
 	vl->num_data += i.run;
-//	fprintf(stderr, "(1) vl: size = %d, num_list = %d, num_data = %d, elm = %p\n", vl->size, vl->num_list, vl->num_data, vl->elm);
 }
 
 void makenull_vlist(vlist *vl) {
-//	fprintf(stderr, "makenull_list: size = %d, step = %d, num_list = %d, num_data = %d\n", vl->size, vl->step, vl->num_list, vl->num_data);
 	vl->num_list = 0;
 	vl->num_data = 0;
 }
-#endif
 
 void enum_sub_dimension_0(sub_dimension sub, int begin, int remain, sub_dimension tab[], int *k, int K, int dim)
 {
@@ -1818,38 +1311,14 @@ void enum_sub_dimension_0(sub_dimension sub, int begin, int remain, sub_dimensio
 
 void rearrange_table(int nt, sub_dimension *tab, int tab_size)
 {
-//	static int first = 1;
 	sub_dimension *temp = malloc(sizeof(sub_dimension) * tab_size);
 	memcpy(temp, tab, sizeof(sub_dimension) * tab_size);
 	int x = tab_size / nt;
-//	if(first) fprintf(stderr, "rearrange_table: nt = %d, tab_size = %d, x = %d\n", nt, tab_size, x);
 	for(int i = 0; i < tab_size; i++) {
 		tab[i / nt + i % nt * x] = temp[i];
-//		if(first) fprintf(stderr, "tab[%d] := temp[%d]\n", i / nt + i % nt * x, i);
 	}
 	free(temp);
-//	if(first) first = 0;
 }
-
-#define USE_NEXT_COMB
-
-#ifndef USE_NEXT_COMB
-// ハミング距離順の列挙のために要素数の昇順に射影次元番号集合　{0, ... , PJT_DIM -1} の部分集合を求める
-sub_dimension *make_table_for_enumeration_hamming(int n, int dim)
-{
-	sub_dimension *table = malloc(sizeof(sub_dimension) * n);
-	sub_dimension sub;
-    int k = 0;
-	int n_elm;
-	sub.num = 0;
-    for(n_elm = 0; n_elm <= dim; n_elm++) {
-        enum_sub_dimension_0(sub, 0, n_elm, table, &k, n, dim);
-    	if(k >= n) break;
-    }
-	return table;
-}
-
-#else
 
 int nextComb(int n)
 {
@@ -1883,20 +1352,8 @@ sub_dimension *make_table_for_enumeration_hamming(int n, int dim)
 	while(k < n) {
 		table[k++] = sub; // 最後に空集合を入れる．
 	}
-/*
-	for(k = 0; k < 100; k++) {
-		sub = table[k];
-		printf("table[%d] = ", k);
-		for(int i = 0; i < sub.num; i++) {
-			printf("%3d", sub.dim[i]);
-		}
-		printf("\n");
-	}
-	getchar();
-*/
 	return table;
 }
-#endif
 
 void diff(sub_dimension *a, sub_dimension *b, sub_dimension *c) {
 	int i, j;
@@ -1940,8 +1397,6 @@ inline sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 #define PARA_ENUM_INF 0
 #endif
 
-//#define ENUM_CHECK
-// #define USE_DIFF_TABLE
 #ifdef WITH_ENUM_TABLE
 
 	#ifdef ENUM_CHECK
@@ -1952,123 +1407,191 @@ inline sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 	}
 	#endif
 
-
-	#ifndef SELECT_BY_PRIORITY_AFTER_ENUMERATION
-		#if PARA_ENUM_INF == 0
-		// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（single-threasd）
-		int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
-		{
-			static sub_dimension *table = NULL;
-			static int table_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			if(table == NULL) {
-		//		table_size = 8 * num_candidates; // 大きめにしているが，これほど大きくしなくてもよいはず．
-				table_size = (1 << enum_dim) + 1;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			} else if(table_size < 8 * num_candidates) { // この部分は不要？
-				FREE(table, sizeof(sub_dimension) * table_size);
-				table_size = 8 * num_candidates;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
+	#if PARA_ENUM_INF == 0  
+	// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（single-threasd）
+	int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
+	{
+		double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
+		int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数（期待値）
+		int num_sketch_hamm = num_sketch * 5 /* FACTOR_INF */; // Hamming距離順の列挙によって求めるスケッチの個数（十分多めにしておく）
+		#ifdef SELECT_SUM
+			static sketch_with_priority_num *buff = NULL;
+			static int buff_size = 0;
+			if(buff == NULL) {
+				fprintf(stderr, "malloc answer buffer\n");
+				buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
+				fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
+				buff_size = num_sketch_hamm;
+			} else if(buff_size < num_sketch_hamm) {
+				fprintf(stderr, "free and malloc answer buffer\n");
+				FREE(buff, sizeof(sketch_with_priority_num) * buff_size);
+				buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
+				fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
+				buff_size = num_sketch_hamm;
 			}
+		#else
+			static answer_type *buff = NULL;
+			static int buff_size = 0;
+			if(buff == NULL) {
+				fprintf(stderr, "malloc answer buffer\n");
+				buff = MALLOC(sizeof(answer_type) * num_sketch_hamm);
+				fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
+				buff_size = num_sketch_hamm;
+			} else if(buff_size < num_sketch_hamm) {
+				fprintf(stderr, "free and malloc answer buffer\n");
+				FREE(buff, sizeof(answer_type) * buff_size);
+				buff = MALLOC(sizeof(answer_type) * num_sketch_hamm);
+				fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
+				buff_size = num_sketch_hamm;
+			}
+		#endif
+		static sub_dimension *table = NULL;
+		static int table_size = 0;
+		#ifdef ENUM_DIM
+		int enum_dim = ENUM_DIM;
+		#else
+		int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+		#endif
+		if(table == NULL) {
+			table_size = (1 << enum_dim) + 1;
+			table = make_table_for_enumeration_hamming(table_size, enum_dim);
+			#ifdef USE_DIFF_TABLE
+			for(int i = 0; i < table_size - 1; i++) {
+				diff(&table[i], &table[i + 1], &table[i]);
+				if(table[i + 1].num == 0) break; // 次が空集合になったら終了
+			}
+			#endif
+		} else if(table_size < 8 * num_candidates) { // この部分は不要？
+			FREE(table, sizeof(sub_dimension) * table_size);
+			table_size = 8 * num_candidates;
+			table = make_table_for_enumeration_hamming(table_size, enum_dim);
+			#ifdef USE_DIFF_TABLE
+			for(int i = 0; i < table_size - 1; i++) {
+				diff(&table[i], &table[i + 1], &table[i]);
+				if(table[i + 1].num == 0) break; // 次が空集合になったら終了
+			}
+			#endif
+		}
 
-			static int first = 1;
-			if(first) {
-				#ifdef USE_DIFF_TABLE
-				fprintf(stderr, "(0-1) enum_hamm single-thread. using diff table, enum_dim = %d\n", enum_dim);
+		static int first = 1;
+		if(first) {
+			#ifdef USE_DIFF_TABLE
+			fprintf(stderr, "enum_hamm_with_after_selection single-thread. using diff table, enum_dim = %d\n", enum_dim);
+			#else
+			fprintf(stderr, "enum_hamm_with_after_selection single-thread. using table, enum_dim = %d\n", enum_dim);
+			#endif
+			first = 0;
+		}
+
+		#define TABLE_SPP
+		// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
+		#ifdef TABLE_SPP
+		static sub_dimension *table_spp = NULL;
+		#ifdef SPP_BIT
+		int spp_bit = SPP_BIT; // 追加のビット数
+		#else
+		int spp_bit = 17; // 追加のビット数
+		#endif
+		static int table_spp_size = 0;
+		if(table_spp == NULL) {
+			table_spp_size = (1 << spp_bit) + 1;
+			table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
+			fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
+			#ifdef USE_DIFF_TABLE
+			for(int i = 0; i < table_spp_size - 1; i++) {
+				diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
+				if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
+			}
+			#endif
+		}
+		#endif
+
+		#ifndef WITHOUT_IDX
+		int *bd_idx = qs->idx;
+		#endif
+		int *bkt = bucket->bkt;
+
+		int n;
+		sketch_type sk = qs->sketch;
+		sketch_type base_mask = 0, base_mask2 = 0;
+		#ifdef TABLE_SPP
+		int n_spp = 1; // つぎに使用する追加パターン番号（0 のものは空集合なので，1から使用する）
+		int n_spp2 = 1; // 追加パターンも使い切ったら，さらに追加する．
+		#endif
+
+		int num_enum_data = 0; // 列挙されたスケッチを持つデータ総数
+		int num_nonempty = 0; // 列挙によって求めた空でないスケッチの個数
+		for(n = 0; num_enum_data < num_candidates * FACTOR_INF && num_nonempty < buff_size; n++) { // table を使って mask を作って，つぎのスケッチを列挙する
+			sketch_type mask = base_mask;
+			for(int m = 0; m < table[n].num; m++) {
+				#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
+				mask |= (1 << table[n].dim[m]);
 				#else
-				fprintf(stderr, "(0-2) enum_hamm single-thread. using table, enum_dim = %d\n", enum_dim);
+				mask |= (1 << bd_idx[(int)table[n].dim[m]]);
 				#endif
-				first = 0;
 			}
-
-			#define TABLE_SPP
-			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-			#ifdef TABLE_SPP
-			static sub_dimension *table_spp = NULL;
-			#ifdef SPP_BIT
-			int spp_bit = SPP_BIT; // 追加のビット数
+			#ifdef USE_DIFF_TABLE
+			sk = sk ^ mask;
 			#else
-			int spp_bit = 17; // 追加のビット数
+			sk = qs->sketch ^ mask;
 			#endif
-			static int table_spp_size = 0;
-			if(table_spp == NULL) {
-				table_spp_size = (1 << spp_bit) + 1;
-				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-		/*
-				for(int i = 0; i < table_spp_size; i++) {
-					printf("table_spp[%d] = ", i);
-					for(int j = 0; j < table_spp[i].num; j++) {
-						printf("%4d", table_spp[i].dim[j]);
-					}
-					printf("\n");
-					getchar();
-				}
-				getchar();
-		*/
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_spp_size - 1; i++) {
-					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
+			if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加
+				#ifdef SELECT_SUM
+				buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
+				num_enum_data += bkt[sk + 1] - bkt[sk];
+				#else
+				buff[num_nonempty++] = (answer_type){sk, priority(sk, qs)};
+				num_enum_data += bkt[sk + 1] - bkt[sk];
 				#endif
 			}
-			#endif
-
-			#ifndef WITHOUT_IDX
-			int *bd_idx = qs->idx;
-			#endif
-			int *bkt = bucket->bkt;
-
-			int k = 0; // 列挙したスケッチから得られたデータ番号の個数
-			int n;
-			sketch_type sk = qs->sketch;
-			sketch_type base_mask = 0, base_mask2 = 0;
-			#ifdef TABLE_SPP
-			int n_spp = 1; // つぎに使用する追加パターン番号（0 のものは空集合なので，1から使用する）
-			int n_spp2 = 1; // 追加パターンも使い切ったら，さらに追加する．
-			#endif
-			for(n = 0; k < num_candidates; n++) { // table を使って mask を作って，つぎのスケッチを列挙する
-				sketch_type mask = base_mask;
-		//		if(n_spp > 1) {
-		//			printf("n_spp = %d, base_mask = ", n_spp);
-		//			print_bin(base_mask);
-		//			printf("\n");
-		//		}
-				for(int m = 0; m < table[n].num; m++) {
+			if(table[n + 1].num == 0) { // 用意したパターンがなくなった．
+				#ifdef TABLE_SPP
+				if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
+					if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
+					n_spp = 0;
+					n_spp2++;
+					base_mask2 = 0;
+					for(int m = 0; m < table_spp[n_spp2].num; m++) {
+						#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
+						base_mask2 |= (1 << (table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
+						#else
+						base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
+						#endif
+					}
+				}
+				base_mask = base_mask2;
+				for(int m = 0; m < table_spp[n_spp].num; m++) {
 					#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-					mask |= (1 << table[n].dim[m]);
+					base_mask |= (1 << (table_spp[n_spp].dim[m] + enum_dim));
 					#else
-					mask |= (1 << bd_idx[(int)table[n].dim[m]]);
+					base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
 					#endif
 				}
-		//		if(n_spp > 1) {
-		//			printf("n_spp = %d,      mask = ", n_spp);
-		//			print_bin(mask);
-		//			printf("\n");
-		//			getchar();
-		//		}
-				#ifdef USE_DIFF_TABLE
-				sk = sk ^ mask;
+				n = -1; // forの再初期化で n++ となって，0になる．
+				n_spp++;
 				#else
-				sk = qs->sketch ^ mask;
+				break;
 				#endif
+			}
+		}
+
+		#ifdef ENUM_CHECK
+		if(table[n].num > max_H) {
+			max_H = table[n].num;
+			fprintf(stderr, "max Hamming = %d\n", max_H);
+		}
+		if(n > max_n) {
+			max_n = n;
+			fprintf(stderr, "max n (number of used table entries) = %d\n", max_n);
+		}
+		#endif
+
+		#ifdef SELECT_SUM
+			int num_selected_sketches, check_sum = 0;
+			num_selected_sketches =quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_candidates);
+			int k = 0, i; // 出力したデータ番号の個数
+			for(i = 0; k < num_candidates; i++) {
+				sketch_type sk = (sketch_type)(buff[i].sk);
 				for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_candidates; j++, k++) {
 					#ifdef DATA_NUM_IN_SKETCH_ORDER
 					data_num[k] = j;
@@ -2076,1494 +1599,136 @@ inline sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 					data_num[k] = bucket->idx[j];
 					#endif
 				}
-				if(table[n + 1].num == 0) { // 用意したパターンがなくなった．
-					#ifdef TABLE_SPP
-		//			fprintf(stderr, "table_spp is used: n_spp = %d, num_candidates = %d, k = %d, table_spp_size = %d\n", n_spp, num_candidates, k, table_spp_size);
-		//			fprintf(stderr, "num = %d, enum_dim = %d\n", table_spp[n_spp].num, enum_dim);
-					if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-						if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-						n_spp = 0;
-						n_spp2++;
-						base_mask2 = 0;
-						for(int m = 0; m < table_spp[n_spp2].num; m++) {
-							#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-							base_mask2 |= (1 << (table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
-							#else
-							base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-							#endif
-						}
-		//				printf("base_mask2 = "); print_bin(base_mask2); printf(", k = %d\n", k); fflush(stdout); getchar();
-					}
-					base_mask = base_mask2;
-					for(int m = 0; m < table_spp[n_spp].num; m++) {
-						#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-						base_mask |= (1 << (table_spp[n_spp].dim[m] + enum_dim));
-						#else
-						base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-						#endif
-					}
-					n = -1; // forの再初期化で n++ となって，0になる．
-					n_spp++;
-		//			if(n_spp2 != 1) {
-		//				printf("n_spp2 = %d, n_spp = %d, k = %d\n", n_spp2, n_spp, k);
-		//				printf("base_mask = "); print_bin(base_mask); printf("\n"); fflush(stdout); getchar();
-		//			}
+			}
+		#else
+			int sel = (num_sketch < num_nonempty ? num_sketch : num_nonempty);
+			quick_select_k_answer(buff, 0, num_nonempty - 1, sel * 0.4);
+			int k = 0, i; // 出力したデータ番号の個数
+			for(i = 0; k < num_candidates && i < sel * 0.4; i++) {
+				sketch_type sk = (sketch_type)(buff[i].data_num);
+				for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_candidates; j++, k++) {
+					#ifdef DATA_NUM_IN_SKETCH_ORDER
+					data_num[k] = j;
 					#else
-					break;
+					data_num[k] = bucket->idx[j];
 					#endif
 				}
 			}
-			#ifdef ENUM_CHECK
-			if(table[n].num > max_H) {
-				max_H = table[n].num;
-				fprintf(stderr, "max Hamming = %d\n", max_H);
+			if(k == num_candidates) return num_candidates;
+			quick_select_k_answer(buff, sel * 0.4 - 1, num_nonempty - 1, sel * 0.3);
+			for(; k < num_candidates && i < num_nonempty; i++) {
+				sketch_type sk = (sketch_type)(buff[i].data_num);
+				for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_candidates; j++, k++) {
+					#ifdef DATA_NUM_IN_SKETCH_ORDER
+					data_num[k] = j;
+					#else
+					data_num[k] = bucket->idx[j];
+					#endif
+				}
 			}
-			if(n > max_n) {
-				max_n = n;
-				fprintf(stderr, "max n (number of used table entries) = %d\n", max_n);
-			}
-			#endif
-			return k;
+		#endif
+
+		return k;
+	}
+
+	// single-thread
+	#ifndef USE_MU
+	int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
+	{
+		double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
+		int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数（期待値）
+		int num_sketch_hamm = num_sketch * 5 /* FACTOR_INF */; // Hamming距離順の列挙によって求めるスケッチの個数（十分多めにしておく）
+		static sketch_with_priority_num *buff = NULL;
+		static int buff_size = 0;
+		if(buff == NULL) {
+			fprintf(stderr, "malloc answer buffer\n");
+			buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
+			fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
+			buff_size = num_sketch_hamm;
+		} else if(buff_size < num_sketch_hamm) {
+			fprintf(stderr, "free and malloc answer buffer\n");
+			FREE(buff, sizeof(sketch_with_priority_num) * buff_size);
+			buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
+			fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
+			buff_size = num_sketch_hamm;
 		}
 
-		#ifndef USE_MU
-		// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（single-threasd）
-		// 求めたデータ番号を区間（interval）のリスト（配列）で求める．区間は，データをスケッチ順に並べたときの配列の添え字で始めと終わりの組で表す．
-		// 返り値は求めたスケッチを持つデータ番号の総数（num_candidates 以上になっているはず）
-		int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-		{
-//		fprintf(stderr, "(1) filtering_by_sketch_enumeration_hamming （single-threasd）\n"); exit(0);
-			static sub_dimension *table = NULL;
-			static int table_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			if(table == NULL) {
-				table_size = (1 << enum_dim) + 1;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			} else if(table_size < 8 * num_candidates) { // この部分は不要？
-				FREE(table, sizeof(sub_dimension) * table_size);
-				table_size = 8 * num_candidates;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-
-			static int first = 1;
-			if(first) {
-				#ifdef USE_DIFF_TABLE
-				fprintf(stderr, "(0-3) enum_hamm_interval single-thread. using diff table, enum_dim = %d\n", enum_dim);
-				#else
-				fprintf(stderr, "(0-4) enum_hamm_interval single-thread. using table, enum_dim = %d\n", enum_dim);
-				#endif
-				first = 0;
-			}
-
-			#define TABLE_SPP
-			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-			#ifdef TABLE_SPP
-			static sub_dimension *table_spp = NULL;
-			#ifdef SPP_BIT
-			int spp_bit = SPP_BIT; // 追加のビット数
-			#else
-			int spp_bit = 17; // 追加のビット数
-			#endif
-			static int table_spp_size = 0;
-			if(table_spp == NULL) {
-				table_spp_size = (1 << spp_bit) + 1;
-				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_spp_size - 1; i++) {
-					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
+		static sub_dimension *table = NULL;
+		static int table_size = 0;
+		#ifdef ENUM_DIM
+		int enum_dim = ENUM_DIM;
+		#else
+		int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+		#endif
+		if(table == NULL) {
+			table_size = (1 << enum_dim) + 1;
+			table = make_table_for_enumeration_hamming(table_size, enum_dim);
+			#ifdef USE_DIFF_TABLE
+			for(int i = 0; i < table_size - 1; i++) {
+				diff(&table[i], &table[i + 1], &table[i]);
+				if(table[i + 1].num == 0) break; // 次が空集合になったら終了
 			}
 			#endif
-
-			#ifndef WITHOUT_IDX
-			int *bd_idx = qs->idx;
-			#endif
-			int *bkt = bucket->bkt;
-
-			int num_enum_data = 0; // 列挙したスケッチから得られたデータ番号の個数
-			int num_nonempty = 0; // 列挙によって求めた空でないスケッチの個数
-			int n;
-			sketch_type sk = qs->sketch;
-			sketch_type base_mask = 0, base_mask2 = 0;
-			#ifdef TABLE_SPP
-			int n_spp = 1; // つぎに使用する追加パターン番号（0 のものは空集合なので，1から使用する）
-			int n_spp2 = 1; // 追加パターンも使い切ったら，さらに追加する．
-			#endif
-			interval *list = ivl->list;
-			for(n = 0; num_enum_data < num_candidates; n++) { // table を使って mask を作って，つぎのスケッチを列挙する
-				sketch_type mask = base_mask;
-				for(int m = 0; m < table[n].num; m++) {
-					#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-					mask |= (1 << table[n].dim[m]);
-					#else
-					mask |= (1 << bd_idx[(int)table[n].dim[m]]);
-					#endif
-				}
-				#ifdef USE_DIFF_TABLE
-				sk = sk ^ mask;
-				#else
-				sk = qs->sketch ^ mask;
-				#endif
-				if(bkt[sk] < bkt[sk + 1]) { // 空でないバケツの始めと終わりを追加
-					#ifdef INTERVAL_WITH_RUN
-					list[num_nonempty++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-					#else
-					list[num_nonempty++] = (interval){bkt[sk], bkt[sk + 1] - 1};
-					#endif
-					num_enum_data += bkt[sk + 1] - bkt[sk];
-				}
-				if(table[n + 1].num == 0) { // 用意したパターンがなくなった．
-					#ifdef TABLE_SPP
-					if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-// fprintf(stderr, "追加分のパターンを使い切った．Hit enter !\n"); getchar();
-						if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-						n_spp = 0;
-						n_spp2++;
-						base_mask2 = 0;
-						for(int m = 0; m < table_spp[n_spp2].num; m++) {
-							#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-							base_mask2 |= (1 << (table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
-							#else
-							base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-							#endif
-						}
-					}
-					base_mask = base_mask2;
-					for(int m = 0; m < table_spp[n_spp].num; m++) {
-						#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-						base_mask |= (1 << (table_spp[n_spp].dim[m] + enum_dim));
-						#else
-						base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-						#endif
-					}
-					n = -1; // forの再初期化で n++ となって，0になる．
-					n_spp++;
-					#else
-					break;
-					#endif
-				}
-			}
-			#ifdef ENUM_CHECK
-			if(table[n].num > max_H) {
-				max_H = table[n].num;
-				fprintf(stderr, "max Hamming = %d\n", max_H);
-			}
-			if(n > max_n) {
-				max_n = n;
-				fprintf(stderr, "max n (number of used table entries) = %d\n", max_n);
+		} else if(table_size < 8 * num_candidates) { // この部分は不要？
+			FREE(table, sizeof(sub_dimension) * table_size);
+			table_size = 8 * num_candidates;
+			table = make_table_for_enumeration_hamming(table_size, enum_dim);
+			#ifdef USE_DIFF_TABLE
+			for(int i = 0; i < table_size - 1; i++) {
+				diff(&table[i], &table[i + 1], &table[i]);
+				if(table[i + 1].num == 0) break; // 次が空集合になったら終了
 			}
 			#endif
-			ivl->lg[0] = num_nonempty;
-			return num_enum_data;
-		}
-		#else // USE_MU
-		int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-		{
-			static sub_dimension *table = NULL;
-			static int table_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			if(table == NULL) {
-				table_size = (1 << enum_dim) + 1;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			} else if(table_size < 8 * num_candidates) { // この部分は不要？
-				FREE(table, sizeof(sub_dimension) * table_size);
-				table_size = 8 * num_candidates;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-
-			static int first = 1;
-			if(first) {
-				#ifdef INTERVAL_WITH_PRIORITY
-					#ifdef USE_DIFF_TABLE
-					fprintf(stderr, "(mu-) enum_hamm_without_post_selection, interval, single-thread, using diff table, enum_dim = %d\n", enum_dim);
-					#else
-					fprintf(stderr, "(mu-) enum_hamm_without_post_selection, interval, single-thread, using table, enum_dim = %d\n", enum_dim);
-					#endif
-				#else
-					#ifdef USE_DIFF_TABLE
-					fprintf(stderr, "(x) enum_hamm_without_post_selection, interval single-thread. using diff table, enum_dim = %d\n", enum_dim);
-					#else
-					fprintf(stderr, "(x) enum_hamm_without_post_selection, interval single-thread. using table, enum_dim = %d\n", enum_dim);
-					#endif
-				#endif
-				first = 0;
-			}
-
-			#define TABLE_SPP
-			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-			#ifdef TABLE_SPP
-			static sub_dimension *table_spp = NULL;
-			#ifdef SPP_BIT
-			int spp_bit = SPP_BIT; // 追加のビット数
-			#else
-			int spp_bit = 17; // 追加のビット数
-			#endif
-			static int table_spp_size = 0;
-			if(table_spp == NULL) {
-				table_spp_size = (1 << spp_bit) + 1;
-				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_spp_size - 1; i++) {
-					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-			#endif
-
-			#ifndef WITHOUT_IDX
-			int *bd_idx = qs->idx;
-			#endif
-			int *bkt = bucket->bkt;
-
-			#ifdef INF_AND_HAMM
-			sketch_type mu_low = qs->sketch;
-			#else
-			sketch_type mu_low = 0;
-			#endif
-			sketch_type mu_add = 0;		// add-bit 部分のマスクパターン
-			int num_enum_data = 0;		// 列挙されたスケッチを持つデータ総数
-			int num_nonempty = 0;		// 列挙によって求めた空でないスケッチの個数
-			int low_c = 0, add_c = 0;	// low-bit と add-bit のカウンタ
-			interval *list = ivl->list;
-
-//			int num_enum_sk = 0;
-			while(num_enum_data < num_candidates) {
-//				num_enum_sk++;
-				#ifndef INF_AND_HAMM
-				mu_low = Mu(0, enum_dim, bd_idx, low_c, table);
-				sketch_type sk = qs->sketch ^ mu_low ^ mu_add;
-				#else
-				sketch_type sk = mu_low ^ mu_add;
-				#endif
-				if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加
-					#ifdef INTERVAL_WITH_RUN
-					list[num_nonempty++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-					#else
-					list[num_nonempty++] = (interval){bkt[sk], bkt[sk + 1] - 1};
-					#endif
-//					printf("sk ^ qs = "); print_bin_w(sk ^ qs->sketch, PJT_DIM); printf(": bkt = %10d\n", bkt[sk + 1] - bkt[sk]);
-					num_enum_data += bkt[sk + 1] - bkt[sk];
-				}
-				#ifdef INF_AND_HAMM
-				mu_low = mu_low ^ (1 << bd_idx[bit_count(low_c ^ (low_c + 1)) - 1]);
-				#endif
-				low_c++;
-				if(low_c == (1 << enum_dim)) {
-					low_c = 0;
-					#ifdef INF_AND_HAMM
-					mu_low = qs->sketch;
-					#endif
-					add_c++;
-					mu_add = Mu(enum_dim, spp_bit, bd_idx, add_c, table_spp);
-				}
-			}
-			ivl->lg[0] = num_nonempty;
-//			printf("num_nonempty = %d, num_enum_data = %d, ave = %d\n", num_nonempty, num_enum_data, num_enum_data / num_enum_sk); getchar();
-			return num_enum_data;
 		}
 
-		int filtering_by_sketch_enumeration_hamming_interval_2(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-		{
-			static sub_dimension *table = NULL;
-			static int table_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
+		static int first = 1;
+		if(first) {
+			#ifdef USE_DIFF_TABLE
+			fprintf(stderr, "enum_hamm_with_after_selection_interval single-thread. using diff table, enum_dim = %d\n", enum_dim);
 			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+			fprintf(stderr, "enum_hamm_with_after_selection_interval single-thread. using table, enum_dim = %d\n", enum_dim);
 			#endif
-			if(table == NULL) {
-				table_size = (1 << enum_dim) + 1;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			} else if(table_size < 8 * num_candidates) { // この部分は不要？
-				FREE(table, sizeof(sub_dimension) * table_size);
-				table_size = 8 * num_candidates;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
+			first = 0;
+		}
 
-			static int first = 1;
-			if(first) {
-				#ifdef INTERVAL_WITH_PRIORITY
-					#ifdef USE_DIFF_TABLE
-					fprintf(stderr, "(mu-) enum_hamm_without_post_selection, interval, single-thread, using diff table, enum_dim = %d\n", enum_dim);
-					#else
-					fprintf(stderr, "(mu-) enum_hamm_without_post_selection, interval, single-thread, using table, enum_dim = %d\n", enum_dim);
-					#endif
-				#else
-					#ifdef USE_DIFF_TABLE
-					fprintf(stderr, "(x-2) enum_hamm_without_post_selection, interval single-thread. using diff table, enum_dim = %d\n", enum_dim);
-					#else
-					fprintf(stderr, "(x-2) enum_hamm_without_post_selection, interval single-thread. using table, enum_dim = %d\n", enum_dim);
-					#endif
-				#endif
-				first = 0;
-			}
-
-			#define TABLE_SPP
-			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-			#ifdef TABLE_SPP
-			static sub_dimension *table_spp = NULL;
-			#ifdef SPP_BIT
-			int spp_bit = SPP_BIT; // 追加のビット数
-			#else
-			int spp_bit = 17; // 追加のビット数
-			#endif
-			static int table_spp_size = 0;
-			if(table_spp == NULL) {
-				table_spp_size = (1 << spp_bit) + 1;
-				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_spp_size - 1; i++) {
-					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
+		#define TABLE_SPP
+		// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
+		#ifdef TABLE_SPP
+		static sub_dimension *table_spp = NULL;
+		#ifdef SPP_BIT
+		int spp_bit = SPP_BIT; // 追加のビット数
+		#else
+		int spp_bit = 17; // 追加のビット数
+		#endif
+		static int table_spp_size = 0;
+		if(table_spp == NULL) {
+			table_spp_size = (1 << spp_bit) + 1;
+			table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
+			fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
+			#ifdef USE_DIFF_TABLE
+			for(int i = 0; i < table_spp_size - 1; i++) {
+				diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
+				if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
 			}
 			#endif
-
-			#ifndef WITHOUT_IDX
-			int *bd_idx = qs->idx;
-			#endif
-			int *bkt = bucket->bkt;
-
-			#ifdef INF_AND_HAMM
-			sketch_type mu_low = qs->sketch;
-			#else
-			sketch_type mu_low = 0;
-			#endif
-			sketch_type mu_add = 0;		// add-bit 部分のマスクパターン
-			int num_enum_data = 0;		// 列挙されたスケッチを持つデータ総数
-			int num_nonempty = 0;		// 列挙によって求めた空でないスケッチの個数
-			int low_c = 0, add_c = 0;	// low-bit と add-bit のカウンタ
-			interval *list = ivl->list;
-
-//			int done[10] = {0};
-//			printf("%6d", qs->query.query_num);
-			int num_enum_sk = 0;
-			int skc = 0;
-			while(num_enum_data < num_candidates) {
-				num_enum_sk++;
-				#ifndef INF_AND_HAMM
-				mu_low = Mu(0, enum_dim, bd_idx, low_c, table);
-				sketch_type sk = qs->sketch ^ mu_low ^ mu_add;
-				#else
-				sketch_type sk = mu_low ^ mu_add;
-				#endif
-				if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加
-					#ifdef INTERVAL_WITH_RUN
-					list[num_nonempty++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-					#else
-					list[num_nonempty++] = (interval){bkt[sk], bkt[sk + 1] - 1};
-					#endif
-//					printf("sk ^ qs = "); print_bin_w(sk ^ qs->sketch, PJT_DIM); printf(": bkt = %10d\n", bkt[sk + 1] - bkt[sk]);
-					num_enum_data += bkt[sk + 1] - bkt[sk];
-				}
-				#ifdef INF_AND_HAMM
-				mu_low = mu_low ^ (1 << bd_idx[bit_count(low_c ^ (low_c + 1)) - 1]);
-				#endif
-				low_c++;
-				if(low_c == (1 << enum_dim)) {
-					low_c = 0;
-					#ifdef INF_AND_HAMM
-					mu_low = qs->sketch;
-					#endif
-					add_c++;
-					mu_add = Mu(enum_dim, spp_bit, bd_idx, add_c, table_spp);
-				}
-//				if(num_enum_sk <= 10) {
-//					printf(", %5d", num_enum_data);
-//				}
-//				if(!done[skc] && (num_enum_data / 100000) > skc) {
-//					printf(",%5d,%5d", num_enum_sk, num_enum_data);
-//					done[skc] = 1;
-//					skc++;
-//				}
-			}
-			ivl->lg[0] = num_nonempty;
-//			printf(",%5d,%5d\n", num_enum_sk, num_enum_data); // getchar();
-			return num_enum_data;
 		}
 		#endif
-		#else // PARA_ENUM_INF > 0 (multi-thread)
-		// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（multi-threasd）
-		int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
-		{
-			int n = PARA_ENUM_INF;
-			int nt = (1 << n); // スレッド数
-			#ifdef _OPENMP
-			omp_set_num_threads(nt);
-			#endif
 
-			// ハミング距離順の列挙のための部分集合の表を用意する．
-			static sub_dimension *table = NULL;
-			static int table_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			if(table == NULL) {
-				table_size = (1 << enum_dim) + nt;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				rearrange_table(nt, table, table_size);
-		//	} else if(table_size < num_candidates * 8) {
-		//		FREE(table, sizeof(sub_dimension) * table_size);
-		//		table_size = 8 * num_candidates;
-		//		table = make_table_for_enumeration_hamming(table_size, PJT_DIM - 18);
-		//		rearrange_table(nt, table, table_size);
-			}
+		#ifndef WITHOUT_IDX
+		int *bd_idx = qs->idx;
+		#endif
+		int *bkt = bucket->bkt;
 
-			#ifndef WITHOUT_IDX
-			int *bd_idx = qs->idx;
-			#endif
-			int *bkt = bucket->bkt;
+		int n;
+		sketch_type sk = qs->sketch;
+		sketch_type base_mask = 0, base_mask2 = 0;
+		#ifdef TABLE_SPP
+		int n_spp = 1; // つぎに使用する追加パターン番号（0 のものは空集合なので，1から使用する）
+		int n_spp2 = 1; // 追加パターンも使い切ったら，さらに追加する．
+		#endif
 
-			#define WITH_MASK_TABLE
-			#ifdef WITH_MASK_TABLE
-			static sketch_type *mask_table = NULL;
-			if(mask_table == NULL) {
-				mask_table = MALLOC(sizeof(sketch_type) * table_size);
-			}
-			#pragma omp parallel
-			{
-				int t = omp_get_thread_num(); // スレッド番号の取得
-				int m = 0;
-				int table_size_thread = table_size / nt;
-				sub_dimension *q = table + t * table_size_thread;
-				sketch_type *mt = mask_table + t * table_size_thread;
-
-				for(m = 0; m < table_size_thread; m++) {
-					mt[m] = 0;
-					for(int j = 0; j < q[m].num; j++) {
-						#ifndef WITHOUT_IDX
-						mt[m] |= (1 << bd_idx[(int)q[m].dim[j]]);
-						#else
-						mt[m] |= (1 << (int)q[m].dim[j]);
-						#endif
-					}
-				}
-			}
-			#endif
-
-			static int first = 1;
-			if(first) {
-				#ifdef USE_DIFF_TABLE
-				fprintf(stderr, "(0-5) enum_hamm multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
-				#else
-				fprintf(stderr, "(0-6) enum_hamm multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
-				#endif
-				#ifdef WITH_MASK_TABLE
-				fprintf(stderr, "WITH_MASK_TABLE\n");
-				#endif
-				first = 0;
-			}
-
-			#define TABLE_SPP
-			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-			#ifdef TABLE_SPP
-			static sub_dimension *table_spp = NULL;
-			#ifdef SPP_BIT
-			int spp_bit = SPP_BIT; // 追加のビット数
-			#else
-			int spp_bit = 17; // 追加のビット数
-			#endif
-			static int table_spp_size = 0;
-			if(table_spp == NULL) {
-				table_spp_size = (1 << spp_bit) + 1;
-				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_spp_size - 1; i++) {
-					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-			#endif
-
-			// num_candidates  = 求めるデータ数（全体）
-			// data_num[] = 求めたデータ番号を格納する配列
-			// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
-			// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
-			// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
-			// nt = スレッド数
-			int num_data_thread = num_candidates / nt;	// スレッド求めるデータ番号数
-			int t;										// スレッド番号
-			int m;  									// スレッドが列挙したスケッチ数（パターン番号）
-			int k;  									// スレッドが求めたデータ番号数
-			int table_size_thread = table_size / nt;	// スレッドが用いる列挙する部分集合のパターン配列の大きさ
-			#ifndef WITH_MASK_TABLE
-			sub_dimension *q;							// スレッドが用いる列挙する部分集合のパターン配列
-			#endif
-			int *d;										// スレッドが求めたデータ番号を格納する配列
-			sketch_type base_mask = 0, base_mask2 = 0;	// 追加パターンで作成する mask
-			int n_spp, n_spp2;							// 追加で使用するパターン番号
-			#ifdef WITH_MASK_TABLE
-			#pragma omp parallel private(t, m, k, d, base_mask, base_mask2, n_spp, n_spp2)
-			#else
-			#pragma omp parallel private(t, m, k, q, d, base_mask, base_mask2, n_spp, n_spp2)
-			#endif
-			{
-				t = omp_get_thread_num(); // スレッド番号の取得
-				m = 0;
-				k = 0;
-				#ifndef WITH_MASK_TABLE
-				q = table + t * table_size_thread;
-				#endif
-				d = data_num + t * num_data_thread;
-				base_mask = base_mask2 = 0;
-				n_spp = n_spp2 = 1;
-				#ifdef WITH_MASK_TABLE
-				sketch_type *mt = mask_table + t * table_size_thread;
-				#endif
-		//
-		//		int count_sk = 0;
-		//
-				for(m = 0; k < num_data_thread ; m++) {
-					sketch_type sk, mask = base_mask;
-					#ifdef WITH_MASK_TABLE
-					mask |= mt[m];
-					#else
-					for(int j = 0; j < q[m].num; j++) {
-						#ifndef WITHOUT_IDX
-						mask |= (1 << bd_idx[(int)q[m].dim[j]]);
-						#else
-						mask |= (1 << (int)q[m].dim[j]);
-						#endif
-					}
-					#endif
-					sk = qs->sketch ^ mask;
-					for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_data_thread; j++, k++) {
-						#ifdef DATA_NUM_IN_SKETCH_ORDER
-						d[k] = j;
-						#else
-						d[k] = bucket->idx[j];
-						#endif
-					}
-		//			if(q[m + 1].num == 0) { // 用意したパターンがなくなった．
-					if(m == table_size_thread - 3) { // 用意したパターンがなくなった．??
-		//				fprintf(stderr, "t = %d, m = %d\n", t, m); exit(0);
-						#ifdef TABLE_SPP
-							if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-								if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-								n_spp = 0;
-								n_spp2++;
-								base_mask2 = 0;
-								for(int m = 0; m < table_spp[n_spp2].num; m++) {
-									#ifndef WITHOUT_IDX
-									base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-									#else
-									base_mask2 |= (1 << ((int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
-									#endif
-								}
-							}
-							base_mask = base_mask2;
-							for(int m = 0; m < table_spp[n_spp].num; m++) {
-								#ifndef WITHOUT_IDX
-								base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-								#else
-								base_mask |= (1 << ((int)table_spp[n_spp].dim[m] + enum_dim));
-								#endif
-							}
-							m = -1; // forの再初期化で m++ となって，0になる．
-							n_spp++;
-						#else
-							while(k < num_data_thread) {
-								d[k++] = 0;
-							}
-						#endif
-					}
-				}
-			}
-		//
-		//	exit(0);
-		//
-			return num_candidates;
-		}
-
-		// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（multi-threasd）
-		// 求めたデータ番号を区間（interval）のリスト（配列）で求める．区間は，データをスケッチ順に並べたときの配列の添え字で始めと終わりの組で表す．
-		// 返り値は求めたスケッチを持つデータ番号の総数（num_candidates 以上になっているはず）
-		int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-		{
-//		fprintf(stderr, "(2) filtering_by_sketch_enumeration_hamming （multi-threasd）\n"); exit(0);
-			int n = PARA_ENUM_INF;
-			int nt = (1 << n); // スレッド数
-			#ifdef _OPENMP
-			omp_set_num_threads(nt);
-			#endif
-
-			// ハミング距離順の列挙のための部分集合の表を用意する．
-			static sub_dimension *table = NULL;
-			static int table_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			if(table == NULL) {
-				table_size = (1 << enum_dim) + nt;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				rearrange_table(nt, table, table_size);
-			}
-
-			#ifndef WITHOUT_IDX
-			int *bd_idx = qs->idx;
-			#endif
-			int *bkt = bucket->bkt;
-
-			#define WITH_MASK_TABLE
-			#ifdef WITH_MASK_TABLE
-			static sketch_type *mask_table = NULL;
-			if(mask_table == NULL) {
-				mask_table = MALLOC(sizeof(sketch_type) * table_size);
-			}
-			#pragma omp parallel
-			{
-				int t = omp_get_thread_num(); // スレッド番号の取得
-				int m = 0;
-				int table_size_thread = table_size / nt;
-				sub_dimension *q = table + t * table_size_thread;
-				sketch_type *mt = mask_table + t * table_size_thread;
-
-				for(m = 0; m < table_size_thread; m++) {
-					mt[m] = 0;
-					for(int j = 0; j < q[m].num; j++) {
-						#ifndef WITHOUT_IDX
-						mt[m] |= (1 << bd_idx[(int)q[m].dim[j]]);
-						#else
-						mt[m] |= (1 << (int)q[m].dim[j]);
-						#endif
-					}
-				}
-			}
-			#endif
-
-			static int first = 1;
-			if(first) {
-				#ifdef USE_DIFF_TABLE
-				fprintf(stderr, "(0-7) enum_hamm_interval multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
-				#else
-				fprintf(stderr, "(0-8) enum_hamm_interval multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
-				#endif
-				#ifdef WITH_MASK_TABLE
-				fprintf(stderr, "WITH_MASK_TABLE\n");
-				#endif
-				first = 0;
-			}
-
-			#define TABLE_SPP
-			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-			#ifdef TABLE_SPP
-			static sub_dimension *table_spp = NULL;
-			#ifdef SPP_BIT
-			int spp_bit = SPP_BIT; // 追加のビット数
-			#else
-			int spp_bit = 17; // 追加のビット数
-			#endif
-			static int table_spp_size = 0;
-			if(table_spp == NULL) {
-				table_spp_size = (1 << spp_bit) + 1;
-				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_spp_size - 1; i++) {
-					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-			#endif
-
-			// num_candidates  = 求めるデータ数（全体）
-			// data_num[] = 求めたデータ番号を格納する配列
-			// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
-			// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
-			// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
-			// nt = スレッド数
-			int num_data_thread = num_candidates / nt;	// スレッド求めるデータ番号数
-			int t;										// スレッド番号
-			int m;  									// スレッドが列挙したスケッチ数（パターン番号）
-			int k;  									// スレッドが求めたデータ番号数
-			int table_size_thread = table_size / nt;	// スレッドが用いる列挙する部分集合のパターン配列の大きさ
-			#ifndef WITH_MASK_TABLE
-			sub_dimension *q;							// スレッドが用いる列挙する部分集合のパターン配列
-			#endif
-			interval *list;								// スレッドが求めたスケッチのデータ番号の区間格納
-			int num_data[nt];
-			sketch_type base_mask = 0, base_mask2 = 0;	// 追加パターンで作成する mask
-			int n_spp, n_spp2;							// 追加で使用するパターン番号
-			#ifdef WITH_MASK_TABLE
-			#pragma omp parallel private(t, m, k, list, base_mask, base_mask2, n_spp, n_spp2)
-			#else
-			#pragma omp parallel private(t, m, k, q, list, base_mask, base_mask2, n_spp, n_spp2)
-			#endif
-			{
-				t = omp_get_thread_num(); // スレッド番号の取得
-				m = 0;
-				k = 0;
-				#ifndef WITH_MASK_TABLE
-				q = table + t * table_size_thread;
-				#endif
-				list = ivl->list + t * ivl->size;
-				int num_sk = 0;
-				base_mask = base_mask2 = 0;
-				n_spp = n_spp2 = 1;
-				#ifdef WITH_MASK_TABLE
-				sketch_type *mt = mask_table + t * table_size_thread;
-				#endif
-
-				for(m = 0; k < num_data_thread ; m++) {
-					sketch_type sk, mask = base_mask;
-					#ifdef WITH_MASK_TABLE
-					mask |= mt[m];
-					#else
-					for(int j = 0; j < q[m].num; j++) {
-						#ifndef WITHOUT_IDX
-						mask |= (1 << bd_idx[(int)q[m].dim[j]]);
-						#else
-						mask |= (1 << (int)q[m].dim[j]);
-						#endif
-					}
-					#endif
-					sk = qs->sketch ^ mask;
-					if(bkt[sk] < bkt[sk + 1]) { // 空でないバケツの始めと終わりを追加
-						#ifdef INTERVAL_WITH_RUN
-						list[num_sk++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-						#else
-						list[num_sk++] = (interval){bkt[sk], bkt[sk + 1] - 1};
-						#endif
-						k += bkt[sk + 1] - bkt[sk];
-					}
-					if(m == table_size_thread - 3) { // 用意したパターンがなくなった．??
-						#ifdef TABLE_SPP
-							if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-								if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-								n_spp = 0;
-								n_spp2++;
-								base_mask2 = 0;
-								for(int m = 0; m < table_spp[n_spp2].num; m++) {
-									#ifndef WITHOUT_IDX
-									base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-									#else
-									base_mask2 |= (1 << ((int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
-									#endif
-								}
-							}
-							base_mask = base_mask2;
-							for(int m = 0; m < table_spp[n_spp].num; m++) {
-								#ifndef WITHOUT_IDX
-								base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-								#else
-								base_mask |= (1 << ((int)table_spp[n_spp].dim[m] + enum_dim));
-								#endif
-							}
-							m = -1; // forの再初期化で m++ となって，0になる．
-							n_spp++;
-						#else
-							while(k < num_data_thread) {
-								list[k++] = 0;
-							}
-						#endif
-					}
-				}
-				ivl->lg[t] = num_sk;
-				num_data[t] = k;
-			}
-
-			int total_num_data = num_data[0];
-			for(int t = 1; t < nt; t++) {
-				total_num_data += num_data[t];
-			}
-			return total_num_data;
-		}
-
-/*
-sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
-{
-	sketch_type mask = 0;
-	for(int m = 0; m < sd[i].num; m++) {
-		int j = sd[i].dim[m];
-		mask |= 1 << idx[b + j];
-	}
-	return mask;
-}
-*/
-
-		// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（マスク生成関数muを使用）（multi-threasd）
-		int filtering_by_sketch_enumeration_hamming_interval_2(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-		{
-			int n = PARA_ENUM_INF;
-			int nt = (1 << n); // スレッド数
-			#ifdef _OPENMP
-			omp_set_num_threads(nt);
-			#endif
-
-			int *bd_idx = qs->idx;
-			int *bkt = bucket->bkt;
-
-			sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-			// このパターンの順序は，おそらく，ほとんど recall に影響しないので，INF 用の grey code 生成ルールを用いて準備する
-			// このパターンに対応するスケッチ（各スレッドで列挙する最初のスケッチ）を持つデータ数の平均を用いて，列挙スケッチ数を見積もる．
-			mu_thread[0] = 0;
-			int sample_nd = 0;
-			for(int t = 0; t < nt; t++) {
-				mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-				sketch_type sk = qs->sketch ^ mu_thread[t];
-				sample_nd += bkt[sk + 1] - bkt[sk];
-			}
-			double ave_sample = (double)sample_nd / nt;
-
-			// ハミング距離順の列挙のための部分集合の表を用意する．
-			static sub_dimension *table_low = NULL;
-			static int table_low_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			int low_dim = enum_dim - n; // スレッドで固定する割り当て分の n-bit を減らす
-			if(table_low == NULL) {
-				table_low_size = (1 << low_dim) + nt;
-				table_low = make_table_for_enumeration_hamming(table_low_size, low_dim);
-				fprintf(stderr, "made table for hamming enumeration: low_dim = %d\n", low_dim);
-				use_system("VmSize");
-			}
-
-			int add_dim = SPP_BIT;
-			static int first = 1;
-			if(first) {
-				fprintf(stderr, "(mu**) enum_hamm_interval multi-thread (%d-thread). low-add = %d-%d\n", nt, low_dim, add_dim);
-				first = 0;
-				use_system("VmSize");
-			}
-
-			static sub_dimension *table_add = NULL;
-			static int table_add_size = 0;
-			if(table_add == NULL) {
-				table_add_size = (1 << add_dim) + 1;
-				table_add = make_table_for_enumeration_hamming(table_add_size, add_dim);
-				fprintf(stderr, "make table for spplementary enumeation: add_dim = %d\n", add_dim);
-				use_system("VmSize");
-			}
-
-			// 各スレッドで列挙するスケッチ数（空も含む）を同じにする．平均の2分の1くらい（FACTOR_INF2）にする．
-			// 実際にスレッドで求めたデータ数の合計を積算して，目標のデータ数を超えるまで繰り返す．
-
-			int num_nonempty[nt], num_enum_data[nt];		// スレッドが実際に列挙した空でないスケッチ数とデータ数
-			for(int t = 0; t < nt; t++) {
-				num_enum_data[t] = num_nonempty[t] = 0;
-			}
-			// 最初の試行で各スレッドが列挙するスケッチ数を求める．
-			double ave_num = (double)bucket->num_data / (1 << PJT_DIM); 	// バケット（空も含む）の平均要素数
-			if(ave_sample < 1) ave_sample = ave_num;
-			int num_sketches = num_candidates / ave_sample;					// 全体で列挙するスケッチの個数の期待値
-//			num_sketches = num_sketches / (nt * FACTOR_INF2); 				// 1回目の試行で列挙するスケッチの個数（FACTOR_INF2分の1で少な目にしておく）
-			num_sketches = num_sketches / nt; 				// 1回目の試行で列挙するスケッチの個数（FACTOR_INF2分の1で少な目にしておく）
-			if(num_sketches < nt) num_sketches = nt;
-			num_sketches = (num_sketches + nt - 1) / nt * nt;				// スレッド数で割り切れるように
-			sketch_type mu_common[num_candidates];
-			int mask_id = 0;												// 列挙する共通マスクのid（先頭を0とした連番）
-			int total_enum_data = 0;										// 求めたデータ数の合計
-			do {
-//				fprintf(stderr, "num_sketches = %d\n", num_sketches);
-				if(num_sketches < 100) num_sketches = 100;
-				// まず，各スレッドで求めるnum_sketches個のスケッチの共通部分のマスクを求める
-				#pragma omp parallel for
-				for(int i = 0; i < num_sketches; i++) {
-					sketch_type mu_low = Mu(n, low_dim, bd_idx, (i + mask_id) % (1 << low_dim), table_low);
-					sketch_type mu_add = Mu(n + low_dim, add_dim, bd_idx, (i + mask_id) / (1 << low_dim), table_add);
-					mu_common[i] = qs->sketch ^ mu_low ^ mu_add;
-				}
-
-/*
-sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
-{
-	sketch_type mask = 0;
-	for(int m = 0; m < sd[i].num; m++) {
-		int j = sd[i].dim[m];
-		mask |= 1 << idx[b + j];
-	}
-	return mask;
-}
-*/
-/*
-				#pragma omp parallel
-				{
-					int t = omp_get_thread_num();
-					int num_sketches_thread = num_sketches / nt;
-					sketch_type *mu_common_thread = mu_common + t * num_sketches_thread;
-					for(int i = 0; i < num_sketches_thread; i++) {
-//						sketch_type mu_low = Mu(n, low_dim, bd_idx, (i + mask_id + t * num_sketches_thread) % (1 << low_dim), table_low);
-						sketch_type mu_low = 0;
-						int ii = (i + mask_id + t * num_sketches_thread) % (1 << low_dim);
-						for(int m = 0; m < table_low[ii].num; m++) {
-							int j = table_low[ii].dim[m];
-							mu_low |= 1 << bd_idx[n + j];
-						}
-//						sketch_type mu_add = Mu(n + low_dim, add_dim, bd_idx, (i + mask_id + t * num_sketches_thread) / (1 << low_dim), table_add);
-						sketch_type mu_add = 0;
-						int ia = (i + mask_id + t * num_sketches_thread) / (1 << low_dim);
-						for(int m = 0; m < table_add[ia].num; m++) {
-							int j = table_add[ia].dim[m];
-							mu_add |= 1 << bd_idx[n + low_dim + j];
-						}
-						mu_common_thread[i] = qs->sketch ^ mu_low ^ mu_add;
-					}
-				}
-*/
-
-				mask_id += num_sketches;
-//				int t, ne, nd;
-//				interval *buff;
-//				#pragma omp parallel private(t, ne, nd, buff)
-				#pragma omp parallel 
-//				for(int t = 0; t < nt; t++)
-				{
-					int t = omp_get_thread_num();	// スレッド番号
-					int ne = num_nonempty[t];		// 各スレッドで求めた空でないスケッチ数
-					int nd = 0;						// 一回の処理で各スレッドで求めたデータ数
-					interval *buff = ivl->list + t * ivl->size;
-//					t = omp_get_thread_num();	// スレッド番号
-//					ne = num_nonempty[t];		// 各スレッドで求めた空でないスケッチ数
-//					nd = 0;						// 一回の処理で各スレッドで求めたデータ数
-					buff = ivl->list + t * ivl->size;
-					for(int j = 0;  j < num_sketches; j++) {
-						sketch_type sk = mu_common[j] ^ mu_thread[t];
-						if(bkt[sk + 1] > bkt[sk]) {
-							buff[ne++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-							nd += bkt[sk + 1] - bkt[sk];
-						}
-					}
-					num_nonempty[t] = ne;
-					num_enum_data[t] += nd;
-				}
-//				int total_enum_data_1 = total_enum_data;
-				for(int t = total_enum_data = 0; t < nt; t++) {
-					ivl->lg[t] = num_nonempty[t];
-					total_enum_data += num_enum_data[t];
-				}
-				ave_num = (double)total_enum_data / mask_id / nt;
-//				total_enum_data_1 = total_enum_data - total_enum_data_1;
-//				double ave_num_1 = (double)total_enum_data_1 / mask_id / nt;
-				int num_rest = num_candidates - total_enum_data; 	// 残りの候補数
-				if(num_rest > 0) {
-//					ave_num = (double) total_enum_data_1 / mask_id / nt;			// これまでに列挙したスケッチの平均データ数
-					num_sketches = num_rest / ave_num;
-					if(num_sketches < nt) num_sketches = nt;
-					num_sketches /= nt;
-					num_sketches = (num_sketches + nt - 1) / nt * nt;				// スレッド数で割り切れるように
-				}
-//				num_candidates = 0;
-			} while (total_enum_data < num_candidates);
-//			getchar();
-			return total_enum_data;
-		}
-
-		int filtering_by_sketch_enumeration_hamming_interval_3(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-		{
-			int n = PARA_ENUM_INF;
-			int nt = (1 << n); // スレッド数
-			#ifdef _OPENMP
-			omp_set_num_threads(nt);
-			#endif
-			int *bd_idx = qs->idx;
-			int *bkt = bucket->bkt;
-
-			sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-			// このパターンの順序は，おそらく，ほとんど recall に影響しないので，INF 用の grey code 生成ルールを用いて準備する
-			// このパターンに対応するスケッチ（各スレッドで列挙する最初のスケッチ）を持つデータ数の平均を用いて，列挙スケッチ数を見積もる．
-			mu_thread[0] = 0;
-			int sample_nd = 0;
-			for(int t = 0; t < nt; t++) {
-				mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-				sketch_type sk = qs->sketch ^ mu_thread[t];
-				sample_nd += bkt[sk + 1] - bkt[sk];
-			}
-			double ave_sample = (double)sample_nd / nt;
-
-			// ハミング距離順の列挙のための部分集合の表を用意する．
-			static sub_dimension *table_low = NULL;
-			static int table_low_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			int low_dim = enum_dim - n; // スレッドで固定する割り当て分の n-bit を減らす
-			if(table_low == NULL) {
-				table_low_size = (1 << low_dim) + nt;
-				table_low = make_table_for_enumeration_hamming(table_low_size, low_dim);
-				fprintf(stderr, "made table for hamming enumeration: low_dim = %d\n", low_dim);
-				use_system("VmSize");
-			}
-
-			int add_dim = SPP_BIT;
-			static int first = 1;
-			if(first) {
-				fprintf(stderr, "(mu**3) enum_hamm_interval multi-thread (%d-thread). low-add = %d-%d\n", nt, low_dim, add_dim);
-				first = 0;
-				use_system("VmSize");
-			}
-
-			static sub_dimension *table_add = NULL;
-			static int table_add_size = 0;
-			if(table_add == NULL) {
-				table_add_size = (1 << add_dim) + 1;
-				table_add = make_table_for_enumeration_hamming(table_add_size, add_dim);
-				fprintf(stderr, "make table for spplementary enumeation: add_dim = %d\n", add_dim);
-				use_system("VmSize");
-			}
-
-			int num_enum_data[nt], num_nonempty[nt];		// スレッドが実際に列挙した空でないスケッチ数とデータ数
-			for(int t = 0; t < nt; t++) {
-				num_enum_data[t] = num_nonempty[t] = 0;
-			}
-			int mask_id = 0;								// 列挙する共通マスクのid（先頭を0とした連番）
-			int total_enum_data = 0;						// 求めたデータ数の合計
-			#define MAX_LOOP 4000
-			#define MIN_LOOP 500
-			sketch_type mu_common[MAX_LOOP];
-			int loop;
-			loop = num_candidates / ave_sample / nt;
-			if(loop > MAX_LOOP) {
-				loop = MAX_LOOP;
-			} else if(loop < MIN_LOOP) {
-				loop = MIN_LOOP;
-			}
-			do {
-				#pragma omp parallel for
-				for(int i = mask_id; i < mask_id + loop; i++) {
-					sketch_type mu_low = Mu(n, low_dim, bd_idx, i % (1 << low_dim), table_low);
-					sketch_type mu_add = Mu(n + low_dim, add_dim, bd_idx, i / (1 << low_dim), table_add);
-					mu_common[i - mask_id] = mu_low ^ mu_add;
-				}
-				mask_id += loop;
-				#pragma omp parallel 
-//				for(int t = 0; t < nt; t++)
-				{
-					int t = omp_get_thread_num();	// スレッド番号
-					int ne = num_nonempty[t];		// 各スレッドで求めた空でないスケッチ数
-					int nd = 0;						// 一回の処理で各スレッドで求めたデータ数
-					interval *buff = ivl->list + t * ivl->size;
-					for(int i = 0; i < loop; i++) {
-						sketch_type sk = qs->sketch ^ mu_common[i] ^ mu_thread[t];
-						if(bkt[sk + 1] > bkt[sk]) {
-							buff[ne++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-							nd += bkt[sk + 1] - bkt[sk];
-						}
-					}
-					num_nonempty[t] = ne;
-					num_enum_data[t] += nd;
-				}
-				total_enum_data = 0;
-				for(int t = 0; t < nt; t++) {
-					ivl->lg[t] = num_nonempty[t];
-					total_enum_data += num_enum_data[t];
-				}
-				int num_rest = num_candidates - total_enum_data;
-				if(num_rest > 0) {
-					double ave = (double)total_enum_data / mask_id;
-					loop = num_rest / ave / nt;
-					if(loop > MAX_LOOP) {
-						loop = MAX_LOOP;
-					} else if(loop < MIN_LOOP) {
-						loop = MIN_LOOP;
-					}
-				}
-			} while (total_enum_data < num_candidates);
-			return total_enum_data;
-		}
-
-		#endif // PARA_ENUM_INF
-	#else // SELECT_BY_PRIORITY_AFTER_ENUMERATION
-		#if PARA_ENUM_INF == 0  
-		// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（single-threasd）
-		int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
-		{
-//		fprintf(stderr, "(1-) filtering_by_sketch_enumeration_hamming （single-threasd）\n"); exit(0);
-			double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
-			int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数（期待値）
-			int num_sketch_hamm = num_sketch * 5 /* FACTOR_INF */; // Hamming距離順の列挙によって求めるスケッチの個数（十分多めにしておく）
-			#ifdef SELECT_SUM
-				static sketch_with_priority_num *buff = NULL;
-				static int buff_size = 0;
-				if(buff == NULL) {
-					fprintf(stderr, "malloc answer buffer\n");
-					buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
-					fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
-					buff_size = num_sketch_hamm;
-				} else if(buff_size < num_sketch_hamm) {
-					fprintf(stderr, "free and malloc answer buffer\n");
-					FREE(buff, sizeof(sketch_with_priority_num) * buff_size);
-					buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
-					fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
-					buff_size = num_sketch_hamm;
-				}
-			#else
-				static answer_type *buff = NULL;
-				static int buff_size = 0;
-				if(buff == NULL) {
-					fprintf(stderr, "malloc answer buffer\n");
-					buff = MALLOC(sizeof(answer_type) * num_sketch_hamm);
-					fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
-					buff_size = num_sketch_hamm;
-				} else if(buff_size < num_sketch_hamm) {
-					fprintf(stderr, "free and malloc answer buffer\n");
-					FREE(buff, sizeof(answer_type) * buff_size);
-					buff = MALLOC(sizeof(answer_type) * num_sketch_hamm);
-					fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
-					buff_size = num_sketch_hamm;
-				}
-			#endif
-			static sub_dimension *table = NULL;
-			static int table_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			if(table == NULL) {
-				table_size = (1 << enum_dim) + 1;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			} else if(table_size < 8 * num_candidates) { // この部分は不要？
-				FREE(table, sizeof(sub_dimension) * table_size);
-				table_size = 8 * num_candidates;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-
-			static int first = 1;
-			if(first) {
-				#ifdef USE_DIFF_TABLE
-				fprintf(stderr, "enum_hamm_with_after_selection single-thread. using diff table, enum_dim = %d\n", enum_dim);
-				#else
-				fprintf(stderr, "enum_hamm_with_after_selection single-thread. using table, enum_dim = %d\n", enum_dim);
-				#endif
-				first = 0;
-			}
-
-			#define TABLE_SPP
-			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-			#ifdef TABLE_SPP
-			static sub_dimension *table_spp = NULL;
-			#ifdef SPP_BIT
-			int spp_bit = SPP_BIT; // 追加のビット数
-			#else
-			int spp_bit = 17; // 追加のビット数
-			#endif
-			static int table_spp_size = 0;
-			if(table_spp == NULL) {
-				table_spp_size = (1 << spp_bit) + 1;
-				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_spp_size - 1; i++) {
-					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-			#endif
-
-			#ifndef WITHOUT_IDX
-			int *bd_idx = qs->idx;
-			#endif
-			int *bkt = bucket->bkt;
-
-			int n;
-			sketch_type sk = qs->sketch;
-			sketch_type base_mask = 0, base_mask2 = 0;
-			#ifdef TABLE_SPP
-			int n_spp = 1; // つぎに使用する追加パターン番号（0 のものは空集合なので，1から使用する）
-			int n_spp2 = 1; // 追加パターンも使い切ったら，さらに追加する．
-			#endif
-
-			int num_enum_data = 0; // 列挙されたスケッチを持つデータ総数
-			int num_nonempty = 0; // 列挙によって求めた空でないスケッチの個数
-			for(n = 0; num_enum_data < num_candidates * FACTOR_INF && num_nonempty < buff_size; n++) { // table を使って mask を作って，つぎのスケッチを列挙する
-				sketch_type mask = base_mask;
-				for(int m = 0; m < table[n].num; m++) {
-					#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-					mask |= (1 << table[n].dim[m]);
-					#else
-					mask |= (1 << bd_idx[(int)table[n].dim[m]]);
-					#endif
-				}
-				#ifdef USE_DIFF_TABLE
-				sk = sk ^ mask;
-				#else
-				sk = qs->sketch ^ mask;
-				#endif
-				if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加
-					#ifdef SELECT_SUM
-					buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
-					num_enum_data += bkt[sk + 1] - bkt[sk];
-					#else
-					buff[num_nonempty++] = (answer_type){sk, priority(sk, qs)};
-					num_enum_data += bkt[sk + 1] - bkt[sk];
-					#endif
-				}
-				if(table[n + 1].num == 0) { // 用意したパターンがなくなった．
-					#ifdef TABLE_SPP
-					if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-						if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-						n_spp = 0;
-						n_spp2++;
-						base_mask2 = 0;
-						for(int m = 0; m < table_spp[n_spp2].num; m++) {
-							#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-							base_mask2 |= (1 << (table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
-							#else
-							base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-							#endif
-						}
-					}
-					base_mask = base_mask2;
-					for(int m = 0; m < table_spp[n_spp].num; m++) {
-						#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-						base_mask |= (1 << (table_spp[n_spp].dim[m] + enum_dim));
-						#else
-						base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-						#endif
-					}
-					n = -1; // forの再初期化で n++ となって，0になる．
-					n_spp++;
-					#else
-					break;
-					#endif
-				}
-			}
-
-			#ifdef ENUM_CHECK
-			if(table[n].num > max_H) {
-				max_H = table[n].num;
-				fprintf(stderr, "max Hamming = %d\n", max_H);
-			}
-			if(n > max_n) {
-				max_n = n;
-				fprintf(stderr, "max n (number of used table entries) = %d\n", max_n);
-			}
-			#endif
-
-			#ifdef SELECT_SUM
-				int num_selected_sketches, check_sum = 0;
-				num_selected_sketches =quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_candidates);
-				int k = 0, i; // 出力したデータ番号の個数
-				for(i = 0; k < num_candidates; i++) {
-					sketch_type sk = (sketch_type)(buff[i].sk);
-					for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_candidates; j++, k++) {
-						#ifdef DATA_NUM_IN_SKETCH_ORDER
-						data_num[k] = j;
-						#else
-						data_num[k] = bucket->idx[j];
-						#endif
-					}
-				}
-			#else
-				int sel = (num_sketch < num_nonempty ? num_sketch : num_nonempty);
-				quick_select_k_answer(buff, 0, num_nonempty - 1, sel * 0.4);
-				int k = 0, i; // 出力したデータ番号の個数
-				for(i = 0; k < num_candidates && i < sel * 0.4; i++) {
-					sketch_type sk = (sketch_type)(buff[i].data_num);
-					for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_candidates; j++, k++) {
-						#ifdef DATA_NUM_IN_SKETCH_ORDER
-						data_num[k] = j;
-						#else
-						data_num[k] = bucket->idx[j];
-						#endif
-					}
-				}
-				if(k == num_candidates) return num_candidates;
-				quick_select_k_answer(buff, sel * 0.4 - 1, num_nonempty - 1, sel * 0.3);
-				for(; k < num_candidates && i < num_nonempty; i++) {
-					sketch_type sk = (sketch_type)(buff[i].data_num);
-					for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_candidates; j++, k++) {
-						#ifdef DATA_NUM_IN_SKETCH_ORDER
-						data_num[k] = j;
-						#else
-						data_num[k] = bucket->idx[j];
-						#endif
-					}
-				}
-			#endif
-
-			return k;
-		}
-
-		// single-thread
-		#ifndef USE_MU
-		int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-		{
-//		 fprintf(stderr, "(3) filtering_by_sketch_enumeration_hamming_interval （single-threasd）\n"); exit(0);
-			#ifdef INTERVAL_WITH_PRIORITY
-				// このときは，interval_list をバッファとして用いることができる．
-				interval *buff = ivl->list;
-				int buff_size = ivl->size;
-			#else
-				double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
-				int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数（期待値）
-				int num_sketch_hamm = num_sketch * 5 /* FACTOR_INF */; // Hamming距離順の列挙によって求めるスケッチの個数（十分多めにしておく）
-				static sketch_with_priority_num *buff = NULL;
-				static int buff_size = 0;
-				if(buff == NULL) {
-					fprintf(stderr, "malloc answer buffer\n");
-					buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
-					fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
-					buff_size = num_sketch_hamm;
-				} else if(buff_size < num_sketch_hamm) {
-					fprintf(stderr, "free and malloc answer buffer\n");
-					FREE(buff, sizeof(sketch_with_priority_num) * buff_size);
-					buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
-					fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
-					buff_size = num_sketch_hamm;
-				}
-			#endif
-
-			static sub_dimension *table = NULL;
-			static int table_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			if(table == NULL) {
-				table_size = (1 << enum_dim) + 1;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			} else if(table_size < 8 * num_candidates) { // この部分は不要？
-				FREE(table, sizeof(sub_dimension) * table_size);
-				table_size = 8 * num_candidates;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-
-			static int first = 1;
-			if(first) {
-				#ifdef INTERVAL_WITH_PRIORITY
-					#ifdef USE_DIFF_TABLE
-					fprintf(stderr, "enum_hamm_with_after_selection_interval_with_priority single-thread. using diff table, enum_dim = %d\n", enum_dim);
-					#else
-					fprintf(stderr, "enum_hamm_with_after_selection_interval_with_priority single-thread. using table, enum_dim = %d\n", enum_dim);
-					#endif
-				#else
-					#ifdef USE_DIFF_TABLE
-					fprintf(stderr, "enum_hamm_with_after_selection_interval single-thread. using diff table, enum_dim = %d\n", enum_dim);
-					#else
-					fprintf(stderr, "enum_hamm_with_after_selection_interval single-thread. using table, enum_dim = %d\n", enum_dim);
-					#endif
-				#endif
-				first = 0;
-			}
-
-			#define TABLE_SPP
-			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-			#ifdef TABLE_SPP
-			static sub_dimension *table_spp = NULL;
-			#ifdef SPP_BIT
-			int spp_bit = SPP_BIT; // 追加のビット数
-			#else
-			int spp_bit = 17; // 追加のビット数
-			#endif
-			static int table_spp_size = 0;
-			if(table_spp == NULL) {
-				table_spp_size = (1 << spp_bit) + 1;
-				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_spp_size - 1; i++) {
-					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-			#endif
-
-			#ifndef WITHOUT_IDX
-			int *bd_idx = qs->idx;
-			#endif
-			int *bkt = bucket->bkt;
-
-			int n;
-			sketch_type sk = qs->sketch;
-			sketch_type base_mask = 0, base_mask2 = 0;
-			#ifdef TABLE_SPP
-			int n_spp = 1; // つぎに使用する追加パターン番号（0 のものは空集合なので，1から使用する）
-			int n_spp2 = 1; // 追加パターンも使い切ったら，さらに追加する．
-			#endif
-
-			int num_enum_data = 0; // 列挙されたスケッチを持つデータ総数
-			int num_nonempty = 0; // 列挙によって求めた空でないスケッチの個数
+		int num_enum_data = 0; // 列挙されたスケッチを持つデータ総数
+		int num_nonempty = 0; // 列挙によって求めた空でないスケッチの個数
 //			int num_all_low = 0;
 //			#ifdef LOOP_CONTROL_BY_NUM_SKETCHES
 //			#if defined(INCLUDE_EMPTY_SKETCHES)
@@ -3574,1465 +1739,227 @@ sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 //			#endif
 //			#else
 //			#define BUCKET_SIZE
-			#ifdef BUCKET_SIZE
-			int visited_sketches = 0;
-			double visited_sum = 0, visited_sum2 = 0; 
-			#endif
+		#ifdef BUCKET_SIZE
+		int visited_sketches = 0;
+		double visited_sum = 0, visited_sum2 = 0; 
+		#endif
 
-			for(n = 0; num_enum_data < num_candidates * FACTOR_INF && num_nonempty < buff_size; n++) 
+		for(n = 0; num_enum_data < num_candidates * FACTOR_INF && num_nonempty < buff_size; n++) 
 //			#endif
-			{
-				// table を使って mask を作って，つぎのスケッチを列挙する．
-				sketch_type mask = base_mask;
-				for(int m = 0; m < table[n].num; m++) {
-					#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-					int bp = table[n].dim[m];
-					#else
-					int bp = bd_idx[(int)table[n].dim[m]];
-					#endif
-					mask |= (1 << bp);
-				}
-				#ifdef USE_DIFF_TABLE
-				sk = sk ^ mask;
+		{
+			// table を使って mask を作って，つぎのスケッチを列挙する．
+			sketch_type mask = base_mask;
+			for(int m = 0; m < table[n].num; m++) {
+				#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
+				int bp = table[n].dim[m];
 				#else
-				sk = qs->sketch ^ mask;
+				int bp = bd_idx[(int)table[n].dim[m]];
 				#endif
-				if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加
-					#ifndef USE_COMPACT_INTERVAL
-					#ifdef INTERVAL_WITH_PRIORITY
-						#ifdef INTERVAL_WITH_RUN
-						buff[num_nonempty++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - bkt[sk]};
-						#else
-						buff[num_nonempty++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - 1};
-						#endif
-					#else
-						buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
-					#endif
-					#else
-						int st = bkt[sk];
-						int pr = priority(sk, qs);
-						while(bkt[sk + 1] - st > USHRT_MAX) {
-							buff[num_nonempty++] = (interval){st += USHRT_MAX, USHRT_MAX, (unsigned short)pr};
-						}
-						buff[num_nonempty++] = (interval){st, (unsigned short)(bkt[sk + 1] - st), (unsigned short)pr};
-					#endif
-					num_enum_data += bkt[sk + 1] - bkt[sk];
-				}
-				#ifdef BUCKET_SIZE
-				visited_sketches++;
-				visited_sum += (bkt[sk + 1] - bkt[sk]);
-				visited_sum2 += (bkt[sk + 1] - bkt[sk]) * (bkt[sk + 1] - bkt[sk]);
-//				printf("%5d, %8d\n", visited_sketches, bkt[sk + 1] - bkt[sk]);
-				#endif
-//				#ifdef INCLUDE_EMPTY_SKETCHES
-//				enum_sketches++;
-//				#endif
-				if(table[n + 1].num == 0) { // 用意したパターンがなくなった．
-					// fprintf(stderr, "LOWのパターンを使い切った．n = %d, count = %d\n", n, ++num_all_low);
-					#ifdef TABLE_SPP
-					if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-						// fprintf(stderr, "追加分のパターンを使い切った．Hit enter !\n"); getchar();
-						if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-						n_spp = 0;
-						n_spp2++;
-						base_mask2 = 0;
-						for(int m = 0; m < table_spp[n_spp2].num; m++) {
-							#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-							int bp = table_spp[n_spp2].dim[m] + enum_dim + spp_bit;
-							#else
-							int bp = bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit];
-							#endif
-							base_mask2 |= (1 << bp);
-						}
-					}
-					base_mask = base_mask2;
-					for(int m = 0; m < table_spp[n_spp].num; m++) {
-						#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
-						int bp = table_spp[n_spp].dim[m] + enum_dim;
-						#else
-						int bp = bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim];
-						#endif
-						base_mask |= (1 << bp);
-					}
-					n = -1; // forの再初期化で n++ となって，0になる．
-					n_spp++;
-					#else
-					break;
-					#endif
-				}
+				mask |= (1 << bp);
+			}
+			#ifdef USE_DIFF_TABLE
+			sk = sk ^ mask;
+			#else
+			sk = qs->sketch ^ mask;
+			#endif
+			if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加
+				buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
+				num_enum_data += bkt[sk + 1] - bkt[sk];
 			}
 			#ifdef BUCKET_SIZE
-			double ave = visited_sum / visited_sketches;
-			double ave2 = visited_sum2 / visited_sketches;
-			double stdev = sqrt(ave2 - ave * ave);
-			printf("visited_sketches = %d, average = %.2lf, stdev = %.2lf\n", visited_sketches, ave, stdev);
-			// getchar();
+			visited_sketches++;
+			visited_sum += (bkt[sk + 1] - bkt[sk]);
+			visited_sum2 += (bkt[sk + 1] - bkt[sk]) * (bkt[sk + 1] - bkt[sk]);
 			#endif
-
-			#ifdef INTERVAL_WITH_PRIORITY
-				ivl->lg[0] = quick_select_sum_k_interval(buff, 0, num_nonempty - 1, num_candidates);
-				return num_candidates;
-			#else
-				quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_candidates);
-				int k = 0, num_sk = 0; // k = 出力したデータ番号の個数, num_sk = スケッチの個数
-				for(int i = 0; k < num_candidates; i++) {
-					sketch_type sk = (sketch_type)(buff[num_sk].sk);
-					#ifdef INTERVAL_WITH_RUN
-					ivl->list[num_sk++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
+			if(table[n + 1].num == 0) { // 用意したパターンがなくなった．
+				// fprintf(stderr, "LOWのパターンを使い切った．n = %d, count = %d\n", n, ++num_all_low);
+				#ifdef TABLE_SPP
+				if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
+					// fprintf(stderr, "追加分のパターンを使い切った．Hit enter !\n"); getchar();
+					if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
+					n_spp = 0;
+					n_spp2++;
+					base_mask2 = 0;
+					for(int m = 0; m < table_spp[n_spp2].num; m++) {
+						#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
+						int bp = table_spp[n_spp2].dim[m] + enum_dim + spp_bit;
+						#else
+						int bp = bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit];
+						#endif
+						base_mask2 |= (1 << bp);
+					}
+				}
+				base_mask = base_mask2;
+				for(int m = 0; m < table_spp[n_spp].num; m++) {
+					#ifdef WITHOUT_IDX // bucket->idx を用いた相対位置によるビット操作を行わない
+					int bp = table_spp[n_spp].dim[m] + enum_dim;
 					#else
-					ivl->list[num_sk++] = (interval){bkt[sk], bkt[sk + 1] - 1};
+					int bp = bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim];
 					#endif
-					k += bkt[sk + 1] - bkt[sk];
+					base_mask |= (1 << bp);
 				}
-				ivl->lg[0] = num_sk;
-				return k;
-			#endif
-
-		}
-		#else // USE_MU
-		int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-		{
-		// fprintf(stderr, "(3) filtering_by_sketch_enumeration_hamming_interval （single-threasd）(mu)\n"); exit(0);
-			#ifdef INTERVAL_WITH_PRIORITY
-				// このときは，interval_list をバッファとして用いることができる．
-				interval *buff = ivl->list;
-				int buff_size = ivl->size;
-			#else
-				double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
-				int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数（期待値）
-				int num_sketch_hamm = num_sketch * 5 /* FACTOR_INF */; // Hamming距離順の列挙によって求めるスケッチの個数（十分多めにしておく）
-				static sketch_with_priority_num *buff = NULL;
-				static int buff_size = 0;
-				if(buff == NULL) {
-					fprintf(stderr, "malloc answer buffer\n");
-					buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
-					fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
-					buff_size = num_sketch_hamm;
-				} else if(buff_size < num_sketch_hamm) {
-					fprintf(stderr, "free and malloc answer buffer\n");
-					FREE(buff, sizeof(sketch_with_priority_num) * buff_size);
-					buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
-					fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
-					buff_size = num_sketch_hamm;
-				}
-			#endif
-
-			static sub_dimension *table = NULL;
-			static int table_size = 0;
-			#ifdef ENUM_DIM
-			int enum_dim = ENUM_DIM;
-			#else
-			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-			#endif
-			if(table == NULL) {
-				table_size = (1 << enum_dim) + 1;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			} else if(table_size < 8 * num_candidates) { // この部分は不要？
-				FREE(table, sizeof(sub_dimension) * table_size);
-				table_size = 8 * num_candidates;
-				table = make_table_for_enumeration_hamming(table_size, enum_dim);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_size - 1; i++) {
-					diff(&table[i], &table[i + 1], &table[i]);
-					if(table[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
-			}
-
-			static int first = 1;
-			if(first) {
-				#ifdef INTERVAL_WITH_PRIORITY
-					#ifdef USE_DIFF_TABLE
-					fprintf(stderr, "(mu) enum_hamm_with_after_selection_interval_with_priority single-thread. using diff table, enum_dim = %d\n", enum_dim);
-					#else
-					fprintf(stderr, "(mu) enum_hamm_with_after_selection_interval_with_priority single-thread. using table, enum_dim = %d\n", enum_dim);
-					#endif
+				n = -1; // forの再初期化で n++ となって，0になる．
+				n_spp++;
 				#else
-					#ifdef USE_DIFF_TABLE
-					fprintf(stderr, "enum_hamm_with_after_selection_interval single-thread. using diff table, enum_dim = %d\n", enum_dim);
-					#else
-					fprintf(stderr, "enum_hamm_with_after_selection_interval single-thread. using table, enum_dim = %d\n", enum_dim);
-					#endif
+				break;
 				#endif
-				first = 0;
 			}
+		}
+		#ifdef BUCKET_SIZE
+		double ave = visited_sum / visited_sketches;
+		double ave2 = visited_sum2 / visited_sketches;
+		double stdev = sqrt(ave2 - ave * ave);
+		printf("visited_sketches = %d, average = %.2lf, stdev = %.2lf\n", visited_sketches, ave, stdev);
+		// getchar();
+		#endif
 
-			#define TABLE_SPP
-			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-			#ifdef TABLE_SPP
-			static sub_dimension *table_spp = NULL;
-			#ifdef SPP_BIT
-			int spp_bit = SPP_BIT; // 追加のビット数
+		quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_candidates);
+		int k = 0, num_sk = 0; // k = 出力したデータ番号の個数, num_sk = スケッチの個数
+		for(int i = 0; k < num_candidates; i++) {
+			sketch_type sk = (sketch_type)(buff[num_sk].sk);
+			ivl->list[num_sk++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
+			k += bkt[sk + 1] - bkt[sk];
+		}
+		ivl->lg[0] = num_sk;
+		return k;
+
+	}
+	#else // USE_MU
+	int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
+	{
+		double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
+		int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数（期待値）
+		int num_sketch_hamm = num_sketch * 5 /* FACTOR_INF */; // Hamming距離順の列挙によって求めるスケッチの個数（十分多めにしておく）
+		static sketch_with_priority_num *buff = NULL;
+		static int buff_size = 0;
+		if(buff == NULL) {
+			fprintf(stderr, "malloc answer buffer\n");
+			buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
+			fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
+			buff_size = num_sketch_hamm;
+		} else if(buff_size < num_sketch_hamm) {
+			fprintf(stderr, "free and malloc answer buffer\n");
+			FREE(buff, sizeof(sketch_with_priority_num) * buff_size);
+			buff = MALLOC(sizeof(sketch_with_priority_num) * num_sketch_hamm);
+			fprintf(stderr, "malloc answer buffer OK: num_sketch = %d, num_sketch_hamm = %d\n", num_sketch, num_sketch_hamm);
+			buff_size = num_sketch_hamm;
+		}
+
+		static sub_dimension *table = NULL;
+		static int table_size = 0;
+		#ifdef ENUM_DIM
+		int enum_dim = ENUM_DIM;
+		#else
+		int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+		#endif
+		if(table == NULL) {
+			table_size = (1 << enum_dim) + 1;
+			table = make_table_for_enumeration_hamming(table_size, enum_dim);
+			#ifdef USE_DIFF_TABLE
+			for(int i = 0; i < table_size - 1; i++) {
+				diff(&table[i], &table[i + 1], &table[i]);
+				if(table[i + 1].num == 0) break; // 次が空集合になったら終了
+			}
+			#endif
+		} else if(table_size < 8 * num_candidates) { // この部分は不要？
+			FREE(table, sizeof(sub_dimension) * table_size);
+			table_size = 8 * num_candidates;
+			table = make_table_for_enumeration_hamming(table_size, enum_dim);
+			#ifdef USE_DIFF_TABLE
+			for(int i = 0; i < table_size - 1; i++) {
+				diff(&table[i], &table[i + 1], &table[i]);
+				if(table[i + 1].num == 0) break; // 次が空集合になったら終了
+			}
+			#endif
+		}
+
+		static int first = 1;
+		if(first) {
+			#ifdef USE_DIFF_TABLE
+			fprintf(stderr, "enum_hamm_with_after_selection_interval single-thread. using diff table, enum_dim = %d\n", enum_dim);
 			#else
-			int spp_bit = 17; // 追加のビット数
+			fprintf(stderr, "enum_hamm_with_after_selection_interval single-thread. using table, enum_dim = %d\n", enum_dim);
 			#endif
-			static int table_spp_size = 0;
-			if(table_spp == NULL) {
-				table_spp_size = (1 << spp_bit) + 1;
-				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-				#ifdef USE_DIFF_TABLE
-				for(int i = 0; i < table_spp_size - 1; i++) {
-					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-				}
-				#endif
+			first = 0;
+		}
+
+		#define TABLE_SPP
+		// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
+		#ifdef TABLE_SPP
+		static sub_dimension *table_spp = NULL;
+		#ifdef SPP_BIT
+		int spp_bit = SPP_BIT; // 追加のビット数
+		#else
+		int spp_bit = 17; // 追加のビット数
+		#endif
+		static int table_spp_size = 0;
+		if(table_spp == NULL) {
+			table_spp_size = (1 << spp_bit) + 1;
+			table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
+			fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
+			#ifdef USE_DIFF_TABLE
+			for(int i = 0; i < table_spp_size - 1; i++) {
+				diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
+				if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
 			}
 			#endif
+		}
+		#endif
 
-			#ifndef WITHOUT_IDX
-			int *bd_idx = qs->idx;
+		#ifndef WITHOUT_IDX
+		int *bd_idx = qs->idx;
+		#endif
+		int *bkt = bucket->bkt;
+
+		#ifdef INF_AND_HAMM
+		sketch_type mu_low = qs->sketch;
+		#else
+		sketch_type mu_low = 0;
+		#endif
+		sketch_type mu_add = 0;		// add-bit 部分のマスクパターン
+		int num_enum_data = 0;		// 列挙されたスケッチを持つデータ総数
+		int num_nonempty = 0;		// 列挙によって求めた空でないスケッチの個数
+		int low_c = 0, add_c = 0;	// low-bit と add-bit のカウンタ
+
+		while(num_enum_data < num_candidates * FACTOR_INF && num_nonempty < buff_size) {
+			#ifndef INF_AND_HAMM
+			mu_low = Mu(0, enum_dim, bd_idx, low_c, table);
+			sketch_type sk = qs->sketch ^ mu_low ^ mu_add;
+			#else
+			sketch_type sk = mu_low ^ mu_add;
 			#endif
-			int *bkt = bucket->bkt;
-
+			if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加
+				buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
+				num_enum_data += bkt[sk + 1] - bkt[sk];
+			}
 			#ifdef INF_AND_HAMM
-			sketch_type mu_low = qs->sketch;
-			#else
-			sketch_type mu_low = 0;
+			mu_low = mu_low ^ (1 << bd_idx[bit_count(low_c ^ (low_c + 1)) - 1]);
 			#endif
-			sketch_type mu_add = 0;		// add-bit 部分のマスクパターン
-			int num_enum_data = 0;		// 列挙されたスケッチを持つデータ総数
-			int num_nonempty = 0;		// 列挙によって求めた空でないスケッチの個数
-			int low_c = 0, add_c = 0;	// low-bit と add-bit のカウンタ
-
-			while(num_enum_data < num_candidates * FACTOR_INF && num_nonempty < buff_size) {
-				#ifndef INF_AND_HAMM
-				mu_low = Mu(0, enum_dim, bd_idx, low_c, table);
-				sketch_type sk = qs->sketch ^ mu_low ^ mu_add;
-				#else
-				sketch_type sk = mu_low ^ mu_add;
-				#endif
-				if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加
-					#ifndef USE_COMPACT_INTERVAL
-					#ifdef INTERVAL_WITH_PRIORITY
-						#ifdef INTERVAL_WITH_RUN
-						buff[num_nonempty++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - bkt[sk]};
-						#else
-						buff[num_nonempty++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - 1};
-						#endif
-					#else
-						buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
-					#endif
-					#else
-						int st = bkt[sk];
-						int pr = priority(sk, qs);
-						while(bkt[sk + 1] - st > USHRT_MAX) {
-							buff[num_nonempty++] = (interval){st += USHRT_MAX, USHRT_MAX, (unsigned short)pr};
-						}
-						buff[num_nonempty++] = (interval){st, (unsigned short)(bkt[sk + 1] - st), (unsigned short)pr};
-					#endif
-					num_enum_data += bkt[sk + 1] - bkt[sk];
-				}
+			low_c++;
+			if(low_c == (1 << enum_dim)) {
+				low_c = 0;
 				#ifdef INF_AND_HAMM
-				mu_low = mu_low ^ (1 << bd_idx[bit_count(low_c ^ (low_c + 1)) - 1]);
+				mu_low = qs->sketch;
 				#endif
-				low_c++;
-				if(low_c == (1 << enum_dim)) {
-					low_c = 0;
-					#ifdef INF_AND_HAMM
-					mu_low = qs->sketch;
-					#endif
-					add_c++;
-					mu_add = Mu(enum_dim, spp_bit, bd_idx, add_c, table_spp);
-				}
+				add_c++;
+				mu_add = Mu(enum_dim, spp_bit, bd_idx, add_c, table_spp);
 			}
-			#ifdef INTERVAL_WITH_PRIORITY
-				ivl->lg[0] = quick_select_sum_k_interval(buff, 0, num_nonempty - 1, num_candidates);
-				return num_candidates;
-			#else
-				quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_candidates);
-				int k = 0, num_sk = 0; // k = 出力したデータ番号の個数, num_sk = スケッチの個数
-				for(int i = 0; k < num_candidates; i++) {
-					sketch_type sk = (sketch_type)(buff[num_sk].sk);
-					#ifdef INTERVAL_WITH_RUN
-					ivl->list[num_sk++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-					#else
-					ivl->list[num_sk++] = (interval){bkt[sk], bkt[sk + 1] - 1};
-					#endif
-					k += bkt[sk + 1] - bkt[sk];
-				}
-				ivl->lg[0] = num_sk;
-				return k;
-			#endif
-
 		}
-		#endif // USE_MU
-		#else // PARA_ENUM_INF > 0 (multi-thread)
-			#ifndef SELECT_BY_SINGLE
-				#ifndef SELECT_BY_PARA_MERGE
-				// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（multi-threasd）
-				int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
-				{
-					int n = PARA_ENUM_INF;
-					int nt = (1 << n); // スレッド数
-					#ifdef _OPENMP
-					omp_set_num_threads(nt);
-					#endif
-
-					// ハミング距離順の列挙のための部分集合の表を用意する．
-					static sub_dimension *table = NULL;
-					static int table_size = 0;
-					#ifdef ENUM_DIM
-					int enum_dim = ENUM_DIM;
-					#else
-					int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-					#endif
-					if(table == NULL) {
-						table_size = (1 << enum_dim) + nt;
-						table = make_table_for_enumeration_hamming(table_size, enum_dim);
-						rearrange_table(nt, table, table_size);
-					fprintf(stderr, "made table for hamming enumeration: enum_dim = %d\n", enum_dim);
-					use_system("VmSize");
-					}
-
-					static int first = 1;
-					if(first) {
-						#ifdef SELECT_SUM
-						fprintf(stderr, "(2) ");
-						#else
-						fprintf(stderr, "(1) ");
-						#endif
-						#ifdef USE_DIFF_TABLE
-						fprintf(stderr, "enum_hamm multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
-						#else
-						fprintf(stderr, "enum_hamm multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
-						#endif
-						first = 0;
-					use_system("VmSize");
-					}
-
-					#define TABLE_SPP
-					// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-					#ifdef TABLE_SPP
-					static sub_dimension *table_spp = NULL;
-					#ifdef SPP_BIT
-					int spp_bit = SPP_BIT; // 追加のビット数
-					#else
-					int spp_bit = 17; // 追加のビット数
-					#endif
-					static int table_spp_size = 0;
-					if(table_spp == NULL) {
-						table_spp_size = (1 << spp_bit) + 1;
-						table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-						fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-						#ifdef USE_DIFF_TABLE
-						for(int i = 0; i < table_spp_size - 1; i++) {
-							diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-							if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-						}
-						#endif
-					fprintf(stderr, "made table for hamming enumeration: spp_bit = %d\n", spp_bit);
-					use_system("VmSize");
-					}
-					#endif
-
-					#ifndef WITHOUT_IDX
-					int *bd_idx = qs->idx;
-					#endif
-					int *bkt = bucket->bkt;
-
-					// num_candidates  = 求めるデータ数（全体）
-					// data_num[] = 求めたデータ番号を格納する配列
-					// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
-					// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
-					// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
-					// nt = スレッド数
-					int num_data_thread = num_candidates / nt;	// スレッド求めるデータ番号数
-					int t;										// スレッド番号
-					int m;  									// スレッドが列挙したスケッチ数（パターン番号）
-					int num_nonempty;							// スレッドが実際に列挙した空でないスケッチ数
-					int k;  									// スレッドが求めたデータ番号数
-					int table_size_thread = table_size / nt;	// スレッドが用いる列挙する部分集合のパターン配列の大きさ
-					sub_dimension *q;							// スレッドが用いる列挙する部分集合のパターン配列
-					int *d;										// スレッドが求めたデータ番号を格納する配列
-					sketch_type base_mask = 0, base_mask2 = 0;	// 追加パターンで作成する mask
-					int n_spp, n_spp2;							// 追加で使用するパターン番号
-					sketch_type sk, mask;
-
-					double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
-					int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数
-					int num_sketch_thread = num_sketch / nt * 5; // 各スレッドが求めるスケッチの個数（十分多めにしておく）
-					static int buff_pool_size = 0;
-					#ifdef SELECT_SUM
-						static sketch_with_priority_num *buff_pool = NULL;
-						if(buff_pool == NULL || buff_pool_size < num_sketch_thread * nt) {
-							if(buff_pool != NULL) {
-								FREE(buff_pool, sizeof(sketch_with_priority_num) * buff_pool_size);
-							}
-							buff_pool_size = num_sketch_thread * nt;
-							fprintf(stderr, "malloc answer buffer, ");
-							buff_pool = MALLOC(sizeof(sketch_with_priority_num) * buff_pool_size);
-							fprintf(stderr, "OK: buff_pool_size = %d, num_thread = %d\n", buff_pool_size, nt);
-						}
-						sketch_with_priority_num *buff;
-					#else
-						static answer_type *buff_pool = NULL;
-						if(buff_pool == NULL || buff_pool_size < num_sketch_thread * nt) {
-							if(buff_pool != NULL) {
-								FREE(buff_pool, sizeof(answer_type) * buff_pool_size);
-							}
-							buff_pool_size = num_sketch_thread * nt;
-							fprintf(stderr, "malloc answer buffer, ");
-							buff_pool = MALLOC(sizeof(answer_type) * buff_pool_size);
-							fprintf(stderr, "OK: buff_pool_size = %d, num_thread = %d\n", buff_pool_size, nt);
-						}
-						answer_type *buff;
-					#endif
-
-					#pragma omp parallel private(t, m, num_nonempty, k, q, d, base_mask, base_mask2, n_spp, n_spp2, buff, sk, mask)
-					{
-						t = omp_get_thread_num(); // スレッド番号の取得
-						m = 0;
-						num_nonempty = 0;
-						k = 0;
-						q = table + t * table_size_thread;
-						d = data_num + t * num_data_thread;
-						base_mask = base_mask2 = 0;
-						n_spp = n_spp2 = 1;
-						buff = buff_pool + t * num_sketch_thread;
-						int enum_sketch = 0;
-
-						for(m = 0; num_nonempty < num_sketch_thread && k < num_data_thread * FACTOR_INF; m++) {
-							mask = base_mask;
-							for(int j = 0; j < q[m].num; j++) {
-								#ifndef WITHOUT_IDX
-								mask |= (1 << bd_idx[(int)q[m].dim[j]]);
-								#else
-								mask |= (1 << (int)q[m].dim[j]);
-								#endif
-							}
-							sk = qs->sketch ^ mask;
-							// sk が空でなければ，buffに追加．ここでは，データ番号には展開しない
-							if(bkt[sk + 1] > bkt[sk]) {
-								#ifdef SELECT_SUM
-								buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
-								#else
-								buff[num_nonempty++] = (answer_type){sk, priority(sk, qs)};
-								#endif
-								k += bkt[sk + 1] - bkt[sk];
-								if(enum_sketch == 0 && k >= num_candidates / nt) {
-									enum_sketch = num_nonempty;
-								}
-							}
-							if(q[m + 1].num == 0) { // 用意したパターンがなくなった．
-								#ifdef TABLE_SPP
-									if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-										if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-										n_spp = 0;
-										n_spp2++;
-										base_mask2 = 0;
-										for(int m = 0; m < table_spp[n_spp2].num; m++) {
-											#ifndef WITHOUT_IDX
-											base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-											#else
-											base_mask2 |= (1 << ((int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
-											#endif
-										}
-									}
-									base_mask = base_mask2;
-									for(int m = 0; m < table_spp[n_spp].num; m++) {
-										#ifndef WITHOUT_IDX
-										base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-										#else
-										base_mask |= (1 << ((int)table_spp[n_spp].dim[m] + enum_dim));
-										#endif
-									}
-									m = -1; // forの再初期化で m++ となって，0になる．
-									n_spp++;
-								#else
-									while(k < num_data_thread) {
-										d[k++] = 0;
-									}
-								#endif
-							}
-						}
-						#ifdef SELECT_SUM
-						quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_data_thread);
-						#else
-						int sel = (num_sketch / nt < num_nonempty ? num_sketch / nt : num_nonempty);
-						quick_select_k_answer(buff, 0, num_nonempty - 1, sel * 0.4);
-						#endif
-						int k = 0, i; // 出力したデータ番号の個数
-						for(i = 0; k < num_data_thread /* && i < sel * 0.4 */; i++) {
-							#ifdef SELECT_SUM
-							sketch_type sk = (sketch_type)(buff[i].sk);
-							#else
-							sketch_type sk = (sketch_type)(buff[i].data_num);
-							#endif
-							for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_data_thread; j++, k++) {
-								#ifdef DATA_NUM_IN_SKETCH_ORDER
-								d[k] = j;
-								#else
-								d[k] = bucket->idx[j];
-								#endif
-							}
-						}
-					}
-					return num_candidates;
-				}
-
-				// データ数で制御．10分の1ずつを目標にして，少しずつ列挙して目標数を超えたら終了
-				// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（multi-threasd）
-				#ifndef USE_MU
-				int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-				{
-					// fprintf(stderr, "(5) filtering_by_sketch_enumeration_hamming （multi-threasd）\n"); exit(0);
-					int n = PARA_ENUM_INF;
-					int nt = (1 << n); // スレッド数
-					#ifdef _OPENMP
-					omp_set_num_threads(nt);
-					#endif
-
-					// ハミング距離順の列挙のための部分集合の表を用意する．
-					static sub_dimension *table = NULL;
-					static int table_size = 0;
-					#ifdef ENUM_DIM
-					int enum_dim = ENUM_DIM;
-					#else
-					int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-					#endif
-					if(table == NULL) {
-						table_size = (1 << enum_dim) + nt;
-						table = make_table_for_enumeration_hamming(table_size, enum_dim);
-						rearrange_table(nt, table, table_size);
-						fprintf(stderr, "made table for hamming enumeration: enum_dim = %d\n", enum_dim);
-						use_system("VmSize");
-					}
-
-					static int first = 1;
-					if(first) {
-						#ifdef SELECT_SUM
-						fprintf(stderr, "(2*) ");
-						#else
-						fprintf(stderr, "(1*+) ");
-						#endif
-						#ifdef USE_DIFF_TABLE
-						fprintf(stderr, "enum_hamm_interval multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
-						#else
-						fprintf(stderr, "enum_hamm_interval multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
-						#endif
-						first = 0;
-						use_system("VmSize");
-					}
-
-					static sub_dimension *table_spp = NULL;
-					int spp_bit = SPP_BIT; // 追加のビット数
-					static int table_spp_size = 0;
-					if(table_spp == NULL) {
-						table_spp_size = (1 << spp_bit) + 1;
-						table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-						fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-						fprintf(stderr, "made table for hamming enumeration: spp_bit = %d\n", spp_bit);
-						use_system("VmSize");
-					}
-
-					int *bd_idx = qs->idx;
-					int *bkt = bucket->bkt;
-
-					// INTERVAL_WITH_PRIORITYが定義されているときは，interval_list をバッファとして用いることができる．
-					interval *buff_pool = ivl->list, *buff;
-					int buff_size = ivl->size;
-
-					// 各スレッドで列挙するスケッチ数（空も含む）を同じにする．平均の10分の1くらいにする．
-					// 実際にスレッドで求めたデータ数の合計を積算して，目標のデータ数を超えるまで繰り返す．
-					// double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
-					double ave_num = (double)bucket->num_data / (1 << PJT_DIM); // バケット（空も含む）の平均要素数
-					int num_sketch = num_candidates * FACTOR_INF / ave_num; // 求めるスケッチの個数の期待値（FACTOR_INFで少し多めにする）
-					int num_sketch_thread = num_sketch / nt / FACTOR_INF2; // 各スレッドが一回の操作で求めるスケッチの個数（目標の10分の1程度にしておく）
-					int num_enum_data[nt], total_enum_data = 0;
-					int total_enum_sketch = 0;
-					// num_candidates  = 求めるデータ数（全体）
-					// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
-					// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
-					// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
-					// nt = スレッド数
-					int t;										// スレッド番号
-					int m, pn[nt];  							// スレッドが列挙したスケッチ数（パターン番号）
-					int num_enum_sketches;						// スレッドが実際に列挙したスケッチ数（空も含む）
-					int ne, num_nonempty[nt];							// スレッドが実際に列挙した空でないスケッチ数
-					// int k[nt];  								// スレッドが求めたデータ番号数
-					int table_size_thread = table_size / nt;	// スレッドが用いる列挙する部分集合のパターン配列の大きさ
-					sub_dimension *q;							// スレッドが用いる列挙する部分集合のパターン配列
-					sketch_type base_mask, base_mask2;
-					sketch_type bm[nt], bm2[nt];					// 追加パターンで作成する mask
-					int n_spp, n_spp2, ps[nt], ps2[nt];			// 追加で使用するパターン番号
-					sketch_type sk, mask;
-					for(t = 0; t < nt; t++) {
-						pn[t] = 0;
-						num_enum_data[t] = 0;
-						num_nonempty[t] = 0;
-						// k[t] = 0;
-						bm[t] = 0;
-						bm2[t] = 0;
-						ps[t] = ps2[t] = 1;
-					}
- 					do {
-						#pragma omp parallel private(t, m, q, buff, base_mask, base_mask2, n_spp, n_spp2, sk, mask, num_enum_sketches)
-						{
-							t = omp_get_thread_num(); // スレッド番号の取得
-							int en = 0;
-							ne = num_nonempty[t];
-							q = table + t * table_size_thread;
-							buff = buff_pool + t * buff_size;
-							m = pn[t];
-							base_mask = bm[t]; base_mask2 = bm2[t];
-							n_spp = ps[t]; n_spp2 = ps2[t];
-							for(num_enum_sketches = 0; num_enum_sketches < num_sketch_thread; m++) // ここでは，データ数の制限はしない
-							{
-								mask = base_mask;
-								for(int j = 0; j < q[m].num; j++) {
-									mask |= (1 << bd_idx[(int)q[m].dim[j]]);
-								}
-								sk = qs->sketch ^ mask;
-								if(bkt[sk + 1] > bkt[sk]) {// sk が空でなければ，buffに追加．ここでは，データ番号には展開しない
-									buff[ne++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - bkt[sk]};
-									en += bkt[sk + 1] - bkt[sk];
-								}
-								num_enum_sketches++;
-								if(q[m + 1].num == 0) { // 用意したパターンがなくなった．
-									if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-										if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-										n_spp = 0;
-										n_spp2++;
-										base_mask2 = 0;
-										for(int m = 0; m < table_spp[n_spp2].num; m++) {
-											base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-										}
-									}
-									base_mask = base_mask2;
-									for(int m = 0; m < table_spp[n_spp].num; m++) {
-										base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-									}
-									m = -1; // forの再初期化で m++ となって，0になる．
-									n_spp++;
-								}
-							}
-							// quick_selection をまとめて並列処理する場合は，いったん，すべてのスレッドでの列挙が終わってから，
-							// つまり，この並列ループが終わってから，別の並列ループで行う（並列処理の関数を呼び出す）
-							num_nonempty[t] = ne;
-							ivl->lg[t] = num_nonempty[t];
-							pn[t] = m;
-							bm[t] = base_mask; bm2[t] = base_mask2;
-							ps[t] = n_spp; ps2[t] = n_spp2;
-							num_enum_data[t] = en;
-						}
-						for(t = 0; t < nt; t++) {
-							total_enum_data += num_enum_data[t];
-						}
-						total_enum_sketch += num_sketch;
-						int num_rest = num_candidates * FACTOR_INF - total_enum_data; // 残りの候補数
-						if(num_rest > 0) {
-							#ifdef USE_AVE_ALL
-							#else
-							ave_num = (double)total_enum_data / total_enum_sketch;
-							#endif
-							num_sketch = num_rest / ave_num;
-							if(num_sketch < nt) num_sketch = nt;
-							num_sketch_thread = num_sketch / nt; 
-						}
-					} while (total_enum_data < num_candidates * FACTOR_INF);
-					int nc2 = quick_select_sum_k_interval_by_multi_thread(ivl, num_candidates);
-					if(nc2 == 0) {
-						fprintf(stderr, "q = %d, num_candidates = %d, nc2 = %d\n", qs->query.query_num, num_candidates, nc2);
-						getchar();
-					}
-					return nc2;
-				}
-				#else // USE_MU
-#ifdef USE_MU_COMMON
-				int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-				{
-					int n = PARA_ENUM_INF;
-					int nt = (1 << n); // スレッド数
-					#ifdef _OPENMP
-					omp_set_num_threads(nt);
-					#endif
-					int *bd_idx = qs->idx;
-					int *bkt = bucket->bkt;
-
-					#ifndef THREAD_PLUS
-					int mu_thread_size = nt;
-					#else
-					int mu_thread_size = nt * (1 << THREAD_PLUS);
-					#endif
-
-					sketch_type mu_thread[mu_thread_size]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-					mu_thread[0] = 0;			// このパターンの順序は，おそらく，ほとんど recall に影響しないので，INF 用の grey code 生成ルールを用いて準備する
-					for(int t = 0; t < mu_thread_size; t++) {
-						mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-					}
-					// #define MU_SORT
-					#ifdef MU_SORT
-						int idx_mu[mu_thread_size];
-						dist_type pr_thread[mu_thread_size];
-						for(int t = 0; t < mu_thread_size; t++) {
-							pr_thread[t] = priority(qs->sketch ^ mu_thread[t], qs);
-							idx_mu[t] = t;
-						}
-						quick_sort(idx_mu, pr_thread, 0, mu_thread_size - 1);
-						sketch_type mu_temp[mu_thread_size];
-						dist_type pr_temp[mu_thread_size];
-						for(int t = 0; t < mu_thread_size; t++) {
-							mu_temp[t] = mu_thread[idx_mu[t]];
-							pr_temp[t] = pr_thread[idx_mu[t]];
-						}
-						for(int t = 0; t < mu_thread_size; t++) {
-							mu_thread[t] = mu_temp[t];
-							pr_thread[t] = pr_temp[t];
-					//		printf("pr[%d] = %d\n", t, pr_thread[t]);
-						}
-					//	getchar();
-					#endif
-
-					// ハミング距離順の列挙のための部分集合の表を用意する．
-					static sub_dimension *table_low = NULL;
-					static int table_low_size = 0;
-					#ifdef ENUM_DIM
-					int enum_dim = ENUM_DIM;
-					#else
-					int enum_dim = PJT_DIM - 22;	// ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-					#endif
-					#ifndef THREAD_PLUS
-					int low_dim = enum_dim - n;		// スレッドで固定する割り当て分の n-bit を減らす
-					#else
-					int low_dim = enum_dim - n - THREAD_PLUS;		// スレッドで固定する割り当て分の n-bit を減らす
-					#endif
-					if(table_low == NULL) {
-						table_low_size = (1 << low_dim) + nt;
-						table_low = make_table_for_enumeration_hamming(table_low_size, low_dim);
-						fprintf(stderr, "made table for hamming enumeration: low_dim = %d\n", low_dim);
-						use_system("VmSize");
-					}
-
-					int add_dim = SPP_BIT;
-					static int first = 1;
-					if(first) {
-						fprintf(stderr, "(*mu_common + post-selection) enum_hamm_interval multi-thread (%d-thread). low-add = %d-%d\n", nt, low_dim, add_dim);
-						first = 0;
-						use_system("VmSize");
-					}
-
-					static sub_dimension *table_add = NULL;
-					static int table_add_size = 0;
-					if(table_add == NULL) {
-						table_add_size = (1 << add_dim) + 1;
-						table_add = make_table_for_enumeration_hamming(table_add_size, add_dim);
-						fprintf(stderr, "make table for spplementary enumeation: add_dim = %d\n", add_dim);
-						use_system("VmSize");
-					}
-					
-					#ifdef DECAF
-					#define MAX_PRIORITY 1200
-					#elif defined(DEEP1B)
-					#define MAX_PRIORITY 500
-					#else
-					#define MAX_PRIORITY 200
-					#endif
-
-					#ifdef THREAD_PLUS
-					static vlist *vl[(1 << PARA_ENUM_INF) * (1 << THREAD_PLUS)][MAX_PRIORITY + 1];
-					#else
-					static vlist *vl[(1 << PARA_ENUM_INF)][MAX_PRIORITY + 1];
-					#endif
-//					#define PR_FACTOR 20
-//					dist_type max_priority = MAX_PRIORITY / PR_FACTOR;
-					dist_type max_priority = MAX_PRIORITY;
-//					for(int i = 0; i < low_dim + add_dim; i++) {
-//						max_priority += qs->bd[qs->idx[i]];
-//					}
-//					dist_type max_priority = priority(-1 ^ qs->sketch, qs);
-/*					static int max_priority_all = 0;
-					if(qs->query.query_num == 0) {
-						max_priority_all = max_priority;
-						fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
-					} else if(max_priority > max_priority_all) {
-						max_priority_all = max_priority;
-						fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
-					}
-					if(max_priority > MAX_PRIORITY) {
-						fprintf(stderr, "Too large max_priority (= %d), q = %d\n", max_priority, qs->query.query_num);
-						exit(1);
-					}
-*/					
-					int num_data_of_priority[mu_thread_size][max_priority + 1];
-					int lg_of_priority[mu_thread_size][max_priority + 1];
-					int total_enum_data[max_priority + 1];
-
-// fprintf(stderr, "max_priority = %d, max_low_priority = %d\n", max_priority, max_low_priority); getchar();
-//					if(qs->query.query_num == 0) {
-//						fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
-//					}
-					#ifndef VLIST_SIZE
-					#define VLIST_SIZE 10
-					#define VLIST_STEP 10
-					#endif
-
-					static int initialized_vlist = 0;
-					if(!initialized_vlist) {
-						for(int t = 0; t < mu_thread_size; t++) {
-							for(dist_type pr = 0; pr <= max_priority; pr++) {
-								vl[t][pr] = new_vlist(VLIST_SIZE, VLIST_STEP);
-							}
-						}
-						initialized_vlist = 1;
-					} else {
-						for(int t = 0; t < mu_thread_size; t++) {
-							for(dist_type pr = 0; pr <= max_priority; pr++) {
-								if(vl[t][pr] == NULL) {
-									vl[t][pr] = new_vlist(VLIST_SIZE, VLIST_STEP);
-								} else {
-									makenull_vlist(vl[t][pr]);
-								}
-							}
-						}
-					}
-					
-					for(int t = 0; t < mu_thread_size; t++) {
-						for(dist_type pr = 0; pr <= max_priority; pr++) {
-							if(vl[t][pr]->num_list != 0 || vl[t][pr]->num_data != 0) {
-								fprintf(stderr, "q = %d, invalid initialized vlist: num_list = %d, num_data = %d\n", qs->query.query_num, vl[t][pr]->num_list, vl[t][pr]->num_data);
-								getchar();
-							}
-						}
-					}
-					int num_enum_data[nt];		// スレッドが実際に列挙した空でないスケッチ数とデータ数
-					for(int t = 0; t < nt; t++) {
-						num_enum_data[t] = 0;
-					}
-					int mask_id = 0;								// 列挙する共通マスクのid（先頭を0とした連番）
-					int loop = FACTOR_INF2;									// まとめて共通マスク mu_mask を作成する個数
-					sketch_type mu_common[loop];
-					int total_data;
-					#ifdef THREAD_PLUS
-					int nn = n + THREAD_PLUS;
-					#else
-					int nn = n;
-					#endif
-					do {
-//						#pragma omp parallel for
-						for(int i = mask_id; i < mask_id + loop; i++) {
-							sketch_type mu_low = Mu(nn, low_dim, bd_idx, i % (1 << low_dim), table_low);
-							sketch_type mu_add = Mu(nn + low_dim, add_dim, bd_idx, i / (1 << low_dim), table_add);
-							mu_common[i - mask_id] = mu_low ^ mu_add;
-						}
-						mask_id += loop;
-						#pragma omp parallel 
-//						for(int t = 0; t < nt; t++)
-						{
-							int t = omp_get_thread_num();	// スレッド番号
-							#ifdef THREAD_PLUS
-							for(int tn = t * (1 << THREAD_PLUS); tn < (t + 1) * (1 << THREAD_PLUS); tn++) 
-							#else
-							int tn = t;
-							#endif
-							{
-								sketch_type sk0 = qs->sketch ^ mu_thread[tn];
-								int nd = 0;						// 一回の処理で各スレッドで求めたデータ数
-								for(int i = 0; i < loop; i++) {
-									sketch_type sk = sk0 ^ mu_common[i];
-									if(bkt[sk + 1] > bkt[sk]) {
-//										dist_type pr = priority(sk, qs) / PR_FACTOR;
-										dist_type pr = priority(sk, qs);
-										add_vlist(vl[tn][pr], (interval){pr, bkt[sk], bkt[sk + 1] - bkt[sk]});
-										nd += bkt[sk + 1] - bkt[sk];
-									}
-								}
-								num_enum_data[t] += nd;
-							}
-						}
-						total_data = 0;
-						for(int t = 0; t < nt; t++) {
-							total_data += num_enum_data[t];
-						}
-					} while (total_data < num_candidates * FACTOR_INF);
-// printf("q, %d, max_priority, %d, => ,", qs->query.query_num, max_priority);
-					int sd;
-					while(1) {
-						sd = 0;
-						for(int t = 0; t < mu_thread_size; t++) {
-							sd += vl[t][max_priority]->num_data;
-						}
-						if(sd != 0) break;
-						max_priority--;
-					}
-//					static int max_priority_all = 0;
-//					if(qs->query.query_num == 0) {
-//						max_priority_all = max_priority;
-//						fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
-//					} else if(max_priority > max_priority_all) {
-//						max_priority_all = max_priority;
-//						fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
-//					}
-// printf("%d\n", max_priority); getchar();
-					for(int pr = 0; pr <= max_priority; pr++) {
-						total_enum_data[pr] = 0;
-						for(int t = 0; t < mu_thread_size; t++) {
-							num_data_of_priority[t][pr] = lg_of_priority[t][pr] = 0;
-						}
-					}
-
-					// num_data_of_priority[t][pr] を pr = 0, ... , pr の累積に変更する．
-					// lg_of_priority[t][pr] も累積
-					for(int t = 0; t < mu_thread_size; t++) {
-						num_data_of_priority[t][0] += vl[t][0]->num_data;
-						lg_of_priority[t][0] += vl[t][0]->num_list;
-						for(int pr = 1; pr <= max_priority; pr++) {
-							num_data_of_priority[t][pr] += num_data_of_priority[t][pr - 1] + vl[t][pr]->num_data;
-							lg_of_priority[t][pr] += lg_of_priority[t][pr - 1] + vl[t][pr]->num_list;
-						}
-					}
-					// 全合計が目標のnum_candidatesを超える最小の優先度 final_priority を求める．
-					int final_priority = 0;
-					for(int pr = 0; pr <= max_priority; pr++) {
-						total_enum_data[pr] = 0;
-						for(int t = 0; t < mu_thread_size; t++) {
-							total_enum_data[pr] += num_data_of_priority[t][pr];
-						}
-						if(total_enum_data[pr] < num_candidates) final_priority = pr;
-					}
-					final_priority++;
-
-					// vl から ivl にまとめる
-					#pragma omp parallel for
-					for(int t = 0; t < mu_thread_size; t++) {
-						interval *buff = ivl->list + t * ivl->size;
-						int lg = 0;
-						for(int pr = 0; pr <= final_priority; pr++) {
-							if(vl[t][pr]->num_list == 0) continue;
-							memcpy(buff + lg, vl[t][pr]->elm, sizeof(interval) * vl[t][pr]->num_list);
-							lg += vl[t][pr]->num_list;
-//							for(int i = 0; i < vl[t][pr]->num_list; i++) {
-//								buff[lg++] = vl[t][pr]->elm[i];
-//							}
-						}
-						ivl->lg[t] = lg;
-					}
-					// printf("total_enum_data = %d ===> ", total_enum_data[final_priority]);
-					// final_priority の区間で余分なもの（データ数がnum_candidatesを超える部分）を削除
-					for(int t = mu_thread_size - 1; t >= 0; t--) {
-						interval *buff = ivl->list + t * ivl->size;
-						if(total_enum_data[final_priority] - (num_data_of_priority[t][final_priority] - num_data_of_priority[t][final_priority - 1]) >= num_candidates) {
-							ivl->lg[t] = lg_of_priority[t][final_priority - 1];
-							total_enum_data[final_priority] -= (num_data_of_priority[t][final_priority] - num_data_of_priority[t][final_priority - 1]);
-						} else {
-							int j = lg_of_priority[t][final_priority] - 1;
-							while(buff[j].priority >= final_priority && total_enum_data[final_priority] - buff[j].run >= num_candidates) {
-								total_enum_data[final_priority] -= buff[j--].run;
-							}
-							ivl->lg[t] = j;
-						}
-					}
-					return total_enum_data[final_priority];
-				}
-#else
-				// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（マスク生成関数muを使用）（multi-threasd）
-				int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-				{
-					// fprintf(stderr, "(5) filtering_by_sketch_enumeration_hamming （multi-threasd）(Using Mu)\n"); exit(0);
-					int n = PARA_ENUM_INF;
-					int nt = (1 << n); // スレッド数
-					#ifdef _OPENMP
-					omp_set_num_threads(nt);
-					#endif
-					// ハミング距離順の列挙のための部分集合の表を用意する．
-					static sub_dimension *table = NULL;
-					static int table_size = 0;
-					#ifdef ENUM_DIM
-					int enum_dim = ENUM_DIM;
-					#else
-					int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-					#endif
-					if(table == NULL) {
-						table_size = (1 << enum_dim) + nt;
-						table = make_table_for_enumeration_hamming(table_size, enum_dim);
-						//　rearrange_table(nt, table, table_size);　// mu では表の並べ替えをしない（遅くなるようなら後で修正）
-						fprintf(stderr, "made table for hamming enumeration: enum_dim = %d\n", enum_dim);
-						use_system("VmSize");
-					}
-
-					static int first = 1;
-					if(first) {
-						#ifdef SELECT_SUM
-						fprintf(stderr, "(2*) ");
-						#else
-						fprintf(stderr, "(1*+mu) ");
-						#endif
-						#ifdef USE_DIFF_TABLE
-						fprintf(stderr, "enum_hamm_interval multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
-						#else
-						fprintf(stderr, "enum_hamm_interval multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
-						#endif
-						first = 0;
-						use_system("VmSize");
-					}
-
-					static sub_dimension *table_spp = NULL;
-					int spp_bit = SPP_BIT; // 追加のビット数
-					static int table_spp_size = 0;
-					if(table_spp == NULL) {
-						table_spp_size = (1 << spp_bit) + 1;
-						table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-						fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-						fprintf(stderr, "made table for hamming enumeration: spp_bit = %d\n", spp_bit);
-						use_system("VmSize");
-					}
-
-					int *bd_idx = qs->idx;
-					int *bkt = bucket->bkt;
-
-					// INTERVAL_WITH_PRIORITYが定義されているときは，interval_list をバッファとして用いることができる．
-					interval *buff_pool = ivl->list, *buff;
-					// 各スレッドで列挙するスケッチ数（空も含む）を同じにする．平均の2分の1くらい（FACTOR_INF2）にする．
-					// 実際にスレッドで求めたデータ数の合計を積算して，目標のデータ数を超えるまで繰り返す．
-					double ave_num = (double)bucket->num_data / (1 << PJT_DIM); // バケット（空も含む）の平均要素数
-//					typedef struct {
-//						int num_enum_data; 						// スレッドで求めたデータ数
-//						int num_nonempty;						// スレッドげ求めた空でないスケッチ数
-//						sketch_type mu_add;						// マスクパターン
-//						int add_p;								// add-bit カウンタの直前の値
-//					} struct_work_enum;
-//					struct_work_enum work[nt];
-					int num_enum_data[nt];
-					int total_enum_data = 0;
-//					int total_enum_sketch = 0;
-					// num_candidates  = 求めるデータ数（全体）
-					// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
-					// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
-					// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
-					// nt = スレッド数
-					int t;										// スレッド番号
-					int sj = 0;  									// スレッドが列挙したスレッド内でのスケッチ番号
-					int num_sketch = num_candidates * FACTOR_INF / ave_num; // 求めるスケッチの個数の期待値（FACTOR_INFで少し多めにする）
-					int ns = num_sketch / nt / FACTOR_INF2; 	// 各スレッドが一回の操作で求めるスケッチの個数（目標の2（FACTOR_INF2）分の1程度にしておく）
-					int num_nonempty[nt];						// スレッドが実際に列挙した空でないスケッチ数
-					sketch_type mu_low, mu_add[nt];
-					int add_c, add_p[nt];						// add-bit のカウンタ，直前のカウンタ
-					sketch_type sk;
-					for(t = 0; t < nt; t++) {
-						num_enum_data[t] = 0;
-						num_nonempty[t] = 0;
-						add_p[t] = -1;
-						mu_add[t] = 0;
-					}
-					int i, j;
-					int ne, nd, ap;
-					sketch_type md;
- 					do {
-						#pragma omp parallel private(t, ne, nd, ap, md, add_c, mu_low, buff, i, j, sk)
-						{
-							t = omp_get_thread_num(); // スレッド番号の取得
-							nd = num_enum_data[t];
-							ne = num_nonempty[t];
-							ap = add_p[t];
-							md = mu_add[t];
-							buff = buff_pool + t * ivl->size;
-							for(j = sj;  j < sj + ns; j++) {
-								i = j * nt + t;
-								mu_low = Mu(0, enum_dim, bd_idx, i % (1 << enum_dim), table);
-								add_c = i / (1 << enum_dim);
-								if(add_c != ap) {
-									md = Mu(enum_dim, spp_bit, bd_idx, add_c, table_spp);
-									ap = add_c;
-								}
-								sk = qs->sketch ^ mu_low ^ md;
-								// sk が空でなければ，buffに追加．ここでは，データ番号には展開しない
-								if(bkt[sk + 1] > bkt[sk]) {
-									buff[ne++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - bkt[sk]};
-									nd += bkt[sk + 1] - bkt[sk];
-								}
-							}
-							// quick_selection をまとめて並列処理する場合は，いったん，すべてのスレッドでの列挙が終わってから，
-							// つまり，この並列ループが終わってから，別の並列ループで行う（並列処理の関数を呼び出す）
-							ivl->lg[t] = num_nonempty[t] = ne;
-							num_enum_data[t] = nd;
-							add_p[t] = ap;
-							mu_add[t] = md;
-						}
-						total_enum_data = 0;
-						for(t = 0; t < nt; t++) {
-							total_enum_data += num_enum_data[t];
-						}
-						sj += ns;
-						int num_rest = num_candidates * FACTOR_INF - total_enum_data; // 残りの候補数
-						if(num_rest > 0) {
-							#ifdef USE_AVE_ALL
-							#else
-							ave_num = (double) total_enum_data / (sj * nt);
-							#endif
-							num_sketch = num_rest / ave_num;
-							if(num_sketch < nt) num_sketch = nt;
-							ns = num_sketch / nt; 
-						}
-					} while (total_enum_data < num_candidates * FACTOR_INF);
-					int nc2 = quick_select_sum_k_interval_by_multi_thread(ivl, num_candidates);
-					if(nc2 == 0) {
-						fprintf(stderr, "q = %d, num_candidates = %d, nc2 = %d\n", qs->query.query_num, num_candidates, nc2);
-						getchar();
-					}
-					return nc2;
-				}
-#endif
-				int filtering_by_sketch_enumeration_hamming_interval_3(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-				{
-					int n = PARA_ENUM_INF;
-					int nt = (1 << n); // スレッド数
-					#ifdef _OPENMP
-					omp_set_num_threads(nt);
-					#endif
-					int *bd_idx = qs->idx;
-					int *bkt = bucket->bkt;
-
-					sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-					// このパターンの順序は，おそらく，ほとんど recall に影響しないので，INF 用の grey code 生成ルールを用いて準備する
-					mu_thread[0] = 0;
-					for(int t = 0; t < nt; t++) {
-						mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-					}
-//					double ave_sample = (double)sample_nd / nt;
-
-					// ハミング距離順の列挙のための部分集合の表を用意する．
-					static sub_dimension *table_low = NULL;
-					static int table_low_size = 0;
-					#ifdef ENUM_DIM
-					int enum_dim = ENUM_DIM;
-					#else
-					int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-					#endif
-					int low_dim = enum_dim - n; // スレッドで固定する割り当て分の n-bit を減らす
-					if(table_low == NULL) {
-						table_low_size = (1 << low_dim) + nt;
-						table_low = make_table_for_enumeration_hamming(table_low_size, low_dim);
-						fprintf(stderr, "made table for hamming enumeration: low_dim = %d\n", low_dim);
-						use_system("VmSize");
-					}
-
-					int add_dim = SPP_BIT;
-					static int first = 1;
-					if(first) {
-						fprintf(stderr, "(mu**3+ps) enum_hamm_interval multi-thread (%d-thread). low-add = %d-%d\n", nt, low_dim, add_dim);
-						first = 0;
-						use_system("VmSize");
-					}
-
-					static sub_dimension *table_add = NULL;
-					static int table_add_size = 0;
-					if(table_add == NULL) {
-						table_add_size = (1 << add_dim) + 1;
-						table_add = make_table_for_enumeration_hamming(table_add_size, add_dim);
-						fprintf(stderr, "make table for spplementary enumeation: add_dim = %d\n", add_dim);
-						use_system("VmSize");
-					}
-
-					int num_enum_data[nt], num_nonempty[nt];		// スレッドが実際に列挙した空でないスケッチ数とデータ数
-					for(int t = 0; t < nt; t++) {
-						num_enum_data[t] = num_nonempty[t] = 0;
-					}
-					int mask_id = 0;								// 列挙する共通マスクのid（先頭を0とした連番）
-					int total_enum_data = 0;						// 求めたデータ数の合計
-					#define MAX_LOOP 4000
-					#define MIN_LOOP 200
-					sketch_type mu_common[MAX_LOOP];
-					int loop = 300;
-					do {
-//						#pragma omp parallel for
-						for(int i = mask_id; i < mask_id + loop; i++) {
-							sketch_type mu_low = Mu(n, low_dim, bd_idx, i % (1 << low_dim), table_low);
-							sketch_type mu_add = Mu(n + low_dim, add_dim, bd_idx, i / (1 << low_dim), table_add);
-							mu_common[i - mask_id] = mu_low ^ mu_add;
-						}
-						mask_id += loop;
-						#pragma omp parallel 
-						{
-							int t = omp_get_thread_num();	// スレッド番号
-							int ne = num_nonempty[t];		// 各スレッドで求めた空でないスケッチ数
-							int nd = 0;						// 一回の処理で各スレッドで求めたデータ数
-							interval *buff = ivl->list + t * ivl->size;
-							for(int i = 0; i < loop; i++) {
-								sketch_type sk = qs->sketch ^ mu_common[i] ^ mu_thread[t];
-								if(bkt[sk + 1] > bkt[sk]) {
-									buff[ne++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - bkt[sk]};
-									nd += bkt[sk + 1] - bkt[sk];
-								}
-							}
-							num_nonempty[t] = ne;
-							num_enum_data[t] += nd;
-						}
-						total_enum_data = 0;
-						for(int t = 0; t < nt; t++) {
-							ivl->lg[t] = num_nonempty[t];
-							total_enum_data += num_enum_data[t];
-						}
-					} while (total_enum_data < num_candidates * FACTOR_INF);
-
-					int nc2 = quick_select_sum_k_interval_by_multi_thread(ivl, num_candidates);
-					if(nc2 == 0) {
-						fprintf(stderr, "q = %d, num_candidates = %d, nc2 = %d\n", qs->query.query_num, num_candidates, nc2);
-						getchar();
-					}
-					return nc2;
-				}
-				#endif // USE_MU
-				#else // SELECT_BY_PARA_MERGE　（上位のスケッチ選択を並列処理で行った後でマージ処理する）
-				// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（multi-threasd）
-				int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
-				{
-					int n = PARA_ENUM_INF;
-					int nt = (1 << n); // スレッド数
-					#ifdef _OPENMP
-					omp_set_num_threads(nt);
-					#endif
-
-					// ハミング距離順の列挙のための部分集合の表を用意する．
-					static sub_dimension *table = NULL;
-					static int table_size = 0;
-					#ifdef ENUM_DIM
-					int enum_dim = ENUM_DIM;
-					#else
-					int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-					#endif
-					if(table == NULL) {
-						table_size = (1 << enum_dim) + nt;
-						table = make_table_for_enumeration_hamming(table_size, enum_dim);
-						rearrange_table(nt, table, table_size);
-					}
-
-					static int first = 1;
-					if(first) {
-						#ifdef USE_DIFF_TABLE
-						fprintf(stderr, "(4) enum_hamm multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
-						#else
-						fprintf(stderr, "(4) enum_hamm multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
-						#endif
-						first = 0;
-					}
-
-					#define TABLE_SPP
-					// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-					#ifdef TABLE_SPP
-					static sub_dimension *table_spp = NULL;
-					#ifdef SPP_BIT
-					int spp_bit = SPP_BIT; // 追加のビット数
-					#else
-					int spp_bit = 17; // 追加のビット数
-					#endif
-					static int table_spp_size = 0;
-					if(table_spp == NULL) {
-						table_spp_size = (1 << spp_bit) + 1;
-						table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-						fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-						#ifdef USE_DIFF_TABLE
-						for(int i = 0; i < table_spp_size - 1; i++) {
-							diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
-							if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
-						}
-						#endif
-					}
-					#endif
-
-					#ifndef WITHOUT_IDX
-					int *bd_idx = qs->idx;
-					#endif
-					int *bkt = bucket->bkt;
-
-					// num_candidates  = 求めるデータ数（全体）
-					// data_num[] = 求めたデータ番号を格納する配列
-					// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
-					// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
-					// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
-					// nt = スレッド数
-					int num_data_thread = num_candidates / nt;	// スレッド求めるデータ番号数
-					int t;										// スレッド番号
-					int m;  									// スレッドが列挙したスケッチ数（パターン番号）
-					int num_nonempty;							// スレッドが実際に列挙した空でないスケッチ数
-					int k;  									// スレッドが求めたデータ番号数
-					int table_size_thread = table_size / nt;	// スレッドが用いる列挙する部分集合のパターン配列の大きさ
-					sub_dimension *q;							// スレッドが用いる列挙する部分集合のパターン配列
-					int *d;										// スレッドが求めたデータ番号を格納する配列
-					sketch_type base_mask = 0, base_mask2 = 0;	// 追加パターンで作成する mask
-					int n_spp, n_spp2;							// 追加で使用するパターン番号
-					sketch_type sk, mask;
-
-					double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
-					int num_sketch = num_candidates * FACTOR_INF / ave_num; // 求めるスケッチの個数（FACTOR_INFで少し多めにする）
-					int num_sketch_thread = num_sketch / nt; // 各スレッドが求めるスケッチの個数（注意：このスケッチ数では，データ数が num_data_thread に達しない可能性がある）
-					static int buff_pool_size = 0;
-					int num_enumerated_data_thread[nt]; // スレッドで列挙したスケッチを持つデータ数
-					int num_selected_sketches[nt]; // 列挙後に quick_select で選択した priority 上位のスケッチ数
-					int num_selected_data[nt]; // 上のスケッチをもつデータ数
-					#ifdef SELECT_SUM
-						static sketch_with_priority_num *buff_pool = NULL;
-						if(buff_pool == NULL || buff_pool_size < num_sketch_thread * nt) {
-							if(buff_pool != NULL) {
-								FREE(buff_pool, sizeof(sketch_with_priority_num) * buff_pool_size);
-							}
-							buff_pool_size = num_sketch_thread * nt;
-							fprintf(stderr, "malloc answer buffer, ");
-							buff_pool = MALLOC(sizeof(sketch_with_priority_num) * buff_pool_size);
-							fprintf(stderr, "OK: buff_pool_size = %d, num_thread = %d\n", buff_pool_size, nt);
-						}
-						sketch_with_priority_num *buff;
-					#else
-						static answer_type *buff_pool = NULL;
-						if(buff_pool == NULL || buff_pool_size < num_sketch_thread * nt) {
-							if(buff_pool != NULL) {
-								FREE(buff_pool, sizeof(answer_type) * buff_pool_size);
-							}
-							buff_pool_size = num_sketch_thread * nt;
-							fprintf(stderr, "malloc answer buffer, ");
-							buff_pool = MALLOC(sizeof(answer_type) * buff_pool_size);
-							fprintf(stderr, "OK: buff_pool_size = %d, num_thread = %d\n", buff_pool_size, nt);
-						}
-						answer_type *buff;
-					#endif
-
-					#pragma omp parallel private(t, m, num_nonempty, k, q, d, base_mask, base_mask2, n_spp, n_spp2, buff, sk, mask)
-					{
-						t = omp_get_thread_num(); // スレッド番号の取得
-						m = 0;
-						num_nonempty = 0;
-						k = 0;
-						q = table + t * table_size_thread;
-						d = data_num + t * num_data_thread;
-						base_mask = base_mask2 = 0;
-						n_spp = n_spp2 = 1;
-						buff = buff_pool + t * num_sketch_thread;
-
-						for(m = 0; num_nonempty < num_sketch_thread /* && k < num_data_thread * 3 // ここでは，データ数の制限はしない */; m++) {
-							mask = base_mask;
-							for(int j = 0; j < q[m].num; j++) {
-								#ifndef WITHOUT_IDX
-								mask |= (1 << bd_idx[(int)q[m].dim[j]]);
-								#else
-								mask |= (1 << (int)q[m].dim[j]);
-								#endif
-							}
-							sk = qs->sketch ^ mask;
-							if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加．ここでは，データ番号には展開しない
-								#ifdef SELECT_SUM
-								buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
-								#else
-								buff[num_nonempty++] = (answer_type){sk, priority(sk, qs)};
-								#endif
-								k += bkt[sk + 1] - bkt[sk];
-							}
-							if(q[m + 1].num == 0) { // 用意したパターンがなくなった．
-								#ifdef TABLE_SPP
-									if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-										if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-										n_spp = 0;
-										n_spp2++;
-										base_mask2 = 0;
-										for(int m = 0; m < table_spp[n_spp2].num; m++) {
-											#ifndef WITHOUT_IDX
-											base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-											#else
-											base_mask2 |= (1 << ((int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
-											#endif
-										}
-									}
-									base_mask = base_mask2;
-									for(int m = 0; m < table_spp[n_spp].num; m++) {
-										#ifndef WITHOUT_IDX
-										base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-										#else
-										base_mask |= (1 << ((int)table_spp[n_spp].dim[m] + enum_dim));
-										#endif
-									}
-									m = -1; // forの再初期化で m++ となって，0になる．
-									n_spp++;
-								#else
-									while(k < num_data_thread) {
-										d[k++] = 0;
-									}
-								#endif
-							}
-						}
-						num_enumerated_data_thread[t] = k;
-						#ifdef SELECT_SUM
-							if(k > num_data_thread * FACTOR_INF) { // 列挙したスケッチを持つデータ数が十分多いときは，priority 上位のものを選択する．
-								num_selected_sketches[t] = quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_data_thread * FACTOR_INF);
-								num_selected_data[t] = num_data_thread * FACTOR_INF;
-							} else {
-								num_selected_sketches[t] = num_nonempty;
-								num_selected_data[t] = num_enumerated_data_thread[t];
-							}
-						#else
-							int sel = (num_sketch / nt < num_nonempty ? num_sketch / nt : num_nonempty);
-							quick_select_k_answer(buff, 0, num_nonempty - 1, sel * 0.4);
-						#endif
-					}
-
-					// スレッドでSELECTしたスケッチを詰め合わせ，それからSELECTする．
-					int total_num_selected_sketches = num_selected_sketches[0];
-					int total_num_data_enumerated = num_selected_data[0];
-					for(int t = 1; t < nt; t++) {
-						memcpy(buff_pool + total_num_selected_sketches, buff_pool + t * num_sketch_thread, sizeof(sketch_with_priority_num) * num_selected_sketches[t]);
-						total_num_selected_sketches += num_selected_sketches[t];
-						total_num_data_enumerated += num_selected_data[t];
-					}
-					if(total_num_data_enumerated < num_candidates * FACTOR_INF) { // 列挙したスケッチのデータ総数が少ないときは，目標の候補数を減らす．
-						num_candidates = total_num_data_enumerated / FACTOR_INF;
-					}
-
-					int nk = quick_select_sum_k_sketch_with_priority_num(buff_pool, 0, total_num_selected_sketches - 1, num_candidates);
-
-					#if defined(_OPENMP) && NUM_THREADS > 1
-						omp_set_num_threads(nk < NUM_THREADS ? nk : NUM_THREADS);
-						nt = omp_get_max_threads(); 	// スレッド数を求める
-						int sk_th[nt + 1]; // スレッドが列挙するスケッチの先頭位置．スレッド t が列挙するスケッチは，sk_th[t] から sk_th[t + 1] - 1 まで． 
-						int num[nt]; // スレッド 0 から スレッド t - 1 が列挙するスケッチのデータ数の合計．スレッド t が列挙したスケッチのデータは，data_num[num[t]] から data_num[num[t + 1] - 1] まで．
-						int p = 0, sum = 0;
-						for(int t = 0; t < nt; t++) {
-							while(sum < (num_candidates / nt) * t) {
-								sum += buff_pool[p++].num;
-							}
-							sk_th[t] = p; 
-							num[t] = sum;
-						}
-						sk_th[nt] = nk;
-						#pragma omp parallel
-						{
-							int t = omp_get_thread_num(); // スレッド番号の取得
-							int k = 0;
-							int *d = data_num + num[t];
-							for(int p = sk_th[t]; p < sk_th[t + 1]; p++) {
-								sketch_type sk = (sketch_type)(buff_pool[p].sk);
-								for(int j = bkt[sk]; j < bkt[sk + 1]; j++, k++) {
-									#ifdef DATA_NUM_IN_SKETCH_ORDER
-									d[k] = j;
-									#else
-									d[k] = bucket->idx[j];
-									#endif
-								}
-							}
-						}
-					#else
-						k = 0;
-						for(int i = 0; i < num_enumerated_sketches; i++) {
-							s = buff_pool[i].sk;
-							for(int j = bkt[s]; j < bkt[s + 1] && k < num_candidates; j++, k++) {
-								#ifdef DATA_NUM_IN_SKETCH_ORDER
-								data_num[k] = j;
-								#else
-								data_num[k] = bucket->idx[j];
-								#endif
-							}
-						}
-					#endif
-
-					return num_candidates;
-
-				}
-				#endif // SELECT_BY_PARA_MERGE
-			#else // !SELECT_BY_SINGLE 
+		quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_candidates);
+		int k = 0, num_sk = 0; // k = 出力したデータ番号の個数, num_sk = スケッチの個数
+		for(int i = 0; k < num_candidates; i++) {
+			sketch_type sk = (sketch_type)(buff[num_sk].sk);
+			ivl->list[num_sk++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
+			k += bkt[sk + 1] - bkt[sk];
+		}
+		ivl->lg[0] = num_sk;
+		return k;
+	}
+	#endif // USE_MU
+	#else // PARA_ENUM_INF > 0 (multi-thread)
+		#ifndef SELECT_BY_SINGLE
+			#ifndef SELECT_BY_PARA_MERGE
 			// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（multi-threasd）
-			// スケッチのD1上位選択をsingle-threadで行う．
 			int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
 			{
 				int n = PARA_ENUM_INF;
@@ -5059,10 +1986,15 @@ sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 
 				static int first = 1;
 				if(first) {
-					#ifdef USE_DIFF_TABLE
-					fprintf(stderr, "(3) enum_hamm multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
+					#ifdef SELECT_SUM
+					fprintf(stderr, "(2) ");
 					#else
-					fprintf(stderr, "(3) enum_hamm multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
+					fprintf(stderr, "(1) ");
+					#endif
+					#ifdef USE_DIFF_TABLE
+					fprintf(stderr, "enum_hamm multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
+					#else
+					fprintf(stderr, "enum_hamm multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
 					#endif
 					first = 0;
 				use_system("VmSize");
@@ -5104,7 +2036,7 @@ sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 				// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
 				// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
 				// nt = スレッド数
-				int num_data_thread = num_candidates / nt;	// スレッドが求めるデータ番号数の目標（これに達しないかもしれない）
+				int num_data_thread = num_candidates / nt;	// スレッド求めるデータ番号数
 				int t;										// スレッド番号
 				int m;  									// スレッドが列挙したスケッチ数（パターン番号）
 				int num_nonempty;							// スレッドが実際に列挙した空でないスケッチ数
@@ -5117,21 +2049,20 @@ sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 				sketch_type sk, mask;
 
 				double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
-				int num_sketches_thread = num_candidates * FACTOR_INF / ave_num / nt; // スレッドが求めるスケッチ数（目標のデータ数より多めになるようにしておく）
-				int num_sketches = num_sketches_thread * nt; // 列挙で求めるスケッチの総数
+				int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数
+				int num_sketch_thread = num_sketch / nt * 5; // 各スレッドが求めるスケッチの個数（十分多めにしておく）
 				static int buff_pool_size = 0;
 				#ifdef SELECT_SUM
 					static sketch_with_priority_num *buff_pool = NULL;
-					if(buff_pool == NULL || buff_pool_size < num_sketches) {
+					if(buff_pool == NULL || buff_pool_size < num_sketch_thread * nt) {
 						if(buff_pool != NULL) {
 							FREE(buff_pool, sizeof(sketch_with_priority_num) * buff_pool_size);
 						}
-						buff_pool_size = num_sketches;
+						buff_pool_size = num_sketch_thread * nt;
 						fprintf(stderr, "malloc answer buffer, ");
 						buff_pool = MALLOC(sizeof(sketch_with_priority_num) * buff_pool_size);
 						fprintf(stderr, "OK: buff_pool_size = %d, num_thread = %d\n", buff_pool_size, nt);
 					}
-					int num_enumerated_data_thread[nt];
 					sketch_with_priority_num *buff;
 				#else
 					static answer_type *buff_pool = NULL;
@@ -5147,19 +2078,20 @@ sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 					answer_type *buff;
 				#endif
 
-				#pragma omp parallel private(t, m, num_nonempty, q, d, base_mask, base_mask2, n_spp, n_spp2, buff, sk, mask)
+				#pragma omp parallel private(t, m, num_nonempty, k, q, d, base_mask, base_mask2, n_spp, n_spp2, buff, sk, mask)
 				{
 					t = omp_get_thread_num(); // スレッド番号の取得
 					m = 0;
 					num_nonempty = 0;
+					k = 0;
 					q = table + t * table_size_thread;
 					d = data_num + t * num_data_thread;
 					base_mask = base_mask2 = 0;
 					n_spp = n_spp2 = 1;
-					buff = buff_pool + t * num_sketches_thread;
-					num_enumerated_data_thread[t] = 0;
+					buff = buff_pool + t * num_sketch_thread;
+					int enum_sketch = 0;
 
-					for(m = 0; num_nonempty < num_sketches_thread; m++) {
+					for(m = 0; num_nonempty < num_sketch_thread && k < num_data_thread * FACTOR_INF; m++) {
 						mask = base_mask;
 						for(int j = 0; j < q[m].num; j++) {
 							#ifndef WITHOUT_IDX
@@ -5176,7 +2108,10 @@ sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 							#else
 							buff[num_nonempty++] = (answer_type){sk, priority(sk, qs)};
 							#endif
-							num_enumerated_data_thread[t] += bkt[sk + 1] - bkt[sk];
+							k += bkt[sk + 1] - bkt[sk];
+							if(enum_sketch == 0 && k >= num_candidates / nt) {
+								enum_sketch = num_nonempty;
+							}
 						}
 						if(q[m + 1].num == 0) { // 用意したパターンがなくなった．
 							#ifdef TABLE_SPP
@@ -5204,78 +2139,1235 @@ sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 								m = -1; // forの再初期化で m++ となって，0になる．
 								n_spp++;
 							#else
-
+								while(k < num_data_thread) {
+									d[k++] = 0;
+								}
 							#endif
 						}
 					}
-
-				}
-
-				#ifdef SELECT_SUM
-					int total_num_data_enumerated = 0, num_selected_sketches;
-					for(int t = 0; t < nt; t++) {
-						total_num_data_enumerated += num_enumerated_data_thread[t];
-					}
-					if(total_num_data_enumerated < num_candidates * FACTOR_INF) { // 列挙したスケッチのデータ総数が少ないときは，目標の候補数を減らす．
-						num_candidates = total_num_data_enumerated / FACTOR_INF;
-					}
-					num_selected_sketches = quick_select_sum_k_sketch_with_priority_num(buff_pool, 0, buff_pool_size - 1, num_candidates);
-				#else
+					#ifdef SELECT_SUM
+					quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_data_thread);
+					#else
 					int sel = (num_sketch / nt < num_nonempty ? num_sketch / nt : num_nonempty);
 					quick_select_k_answer(buff, 0, num_nonempty - 1, sel * 0.4);
+					#endif
+					int k = 0, i; // 出力したデータ番号の個数
+					for(i = 0; k < num_data_thread /* && i < sel * 0.4 */; i++) {
+						#ifdef SELECT_SUM
+						sketch_type sk = (sketch_type)(buff[i].sk);
+						#else
+						sketch_type sk = (sketch_type)(buff[i].data_num);
+						#endif
+						for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_data_thread; j++, k++) {
+							#ifdef DATA_NUM_IN_SKETCH_ORDER
+							d[k] = j;
+							#else
+							d[k] = bucket->idx[j];
+							#endif
+						}
+					}
+				}
+				return num_candidates;
+			}
+
+			// データ数で制御．10分の1ずつを目標にして，少しずつ列挙して目標数を超えたら終了
+			// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（multi-threasd）
+			#ifndef USE_MU
+			int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
+			{
+				// fprintf(stderr, "(5) filtering_by_sketch_enumeration_hamming （multi-threasd）\n"); exit(0);
+				int n = PARA_ENUM_INF;
+				int nt = (1 << n); // スレッド数
+				#ifdef _OPENMP
+				omp_set_num_threads(nt);
 				#endif
 
-				#ifdef SELECT_SUM
-					#if defined(_OPENMP) && NUM_THREADS > 1
-						omp_set_num_threads(num_selected_sketches < NUM_THREADS ? num_selected_sketches : NUM_THREADS);
-						nt = omp_get_max_threads(); 	// スレッド数を求める
-						int sk_th[nt + 1]; // スレッドが列挙するスケッチの先頭位置．スレッド t が列挙するスケッチは，sk_th[t] から sk_th[t + 1] - 1 まで． 
-						int num[nt]; // スレッド 0 から スレッド t - 1 が列挙するスケッチのデータ数の合計．スレッド t が列挙したスケッチのデータは，data_num[num[t]] から data_num[num[t + 1] - 1] まで．
-						int p = 0, sum = 0;
-						for(int t = 0; t < nt; t++) {
-							while(sum < (num_candidates / nt) * t) {
-								sum += buff_pool[p++].num;
-							}
-							sk_th[t] = p; 
-							num[t] = sum;
-						}
-						sk_th[nt] = num_selected_sketches;
-						#pragma omp parallel
+				// ハミング距離順の列挙のための部分集合の表を用意する．
+				static sub_dimension *table = NULL;
+				static int table_size = 0;
+				#ifdef ENUM_DIM
+				int enum_dim = ENUM_DIM;
+				#else
+				int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+				#endif
+				if(table == NULL) {
+					table_size = (1 << enum_dim) + nt;
+					table = make_table_for_enumeration_hamming(table_size, enum_dim);
+					rearrange_table(nt, table, table_size);
+					fprintf(stderr, "made table for hamming enumeration: enum_dim = %d\n", enum_dim);
+					use_system("VmSize");
+				}
+
+				static int first = 1;
+				if(first) {
+					#ifdef SELECT_SUM
+					fprintf(stderr, "(2*) ");
+					#else
+					fprintf(stderr, "(1*+) ");
+					#endif
+					#ifdef USE_DIFF_TABLE
+					fprintf(stderr, "enum_hamm_interval multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
+					#else
+					fprintf(stderr, "enum_hamm_interval multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
+					#endif
+					first = 0;
+					use_system("VmSize");
+				}
+
+				static sub_dimension *table_spp = NULL;
+				int spp_bit = SPP_BIT; // 追加のビット数
+				static int table_spp_size = 0;
+				if(table_spp == NULL) {
+					table_spp_size = (1 << spp_bit) + 1;
+					table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
+					fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
+					fprintf(stderr, "made table for hamming enumeration: spp_bit = %d\n", spp_bit);
+					use_system("VmSize");
+				}
+
+				int *bd_idx = qs->idx;
+				int *bkt = bucket->bkt;
+
+				// INTERVAL_WITH_PRIORITYが定義されているときは，interval_list をバッファとして用いることができる．
+				interval *buff_pool = ivl->list, *buff;
+				int buff_size = ivl->size;
+
+				// 各スレッドで列挙するスケッチ数（空も含む）を同じにする．平均の10分の1くらいにする．
+				// 実際にスレッドで求めたデータ数の合計を積算して，目標のデータ数を超えるまで繰り返す．
+				// double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
+				double ave_num = (double)bucket->num_data / (1 << PJT_DIM); // バケット（空も含む）の平均要素数
+				int num_sketch = num_candidates * FACTOR_INF / ave_num; // 求めるスケッチの個数の期待値（FACTOR_INFで少し多めにする）
+				int num_sketch_thread = num_sketch / nt / FACTOR_INF2; // 各スレッドが一回の操作で求めるスケッチの個数（目標の10分の1程度にしておく）
+				int num_enum_data[nt], total_enum_data = 0;
+				int total_enum_sketch = 0;
+				// num_candidates  = 求めるデータ数（全体）
+				// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
+				// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
+				// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
+				// nt = スレッド数
+				int t;										// スレッド番号
+				int m, pn[nt];  							// スレッドが列挙したスケッチ数（パターン番号）
+				int num_enum_sketches;						// スレッドが実際に列挙したスケッチ数（空も含む）
+				int ne, num_nonempty[nt];							// スレッドが実際に列挙した空でないスケッチ数
+				// int k[nt];  								// スレッドが求めたデータ番号数
+				int table_size_thread = table_size / nt;	// スレッドが用いる列挙する部分集合のパターン配列の大きさ
+				sub_dimension *q;							// スレッドが用いる列挙する部分集合のパターン配列
+				sketch_type base_mask, base_mask2;
+				sketch_type bm[nt], bm2[nt];					// 追加パターンで作成する mask
+				int n_spp, n_spp2, ps[nt], ps2[nt];			// 追加で使用するパターン番号
+				sketch_type sk, mask;
+				for(t = 0; t < nt; t++) {
+					pn[t] = 0;
+					num_enum_data[t] = 0;
+					num_nonempty[t] = 0;
+					// k[t] = 0;
+					bm[t] = 0;
+					bm2[t] = 0;
+					ps[t] = ps2[t] = 1;
+				}
+				do {
+					#pragma omp parallel private(t, m, q, buff, base_mask, base_mask2, n_spp, n_spp2, sk, mask, num_enum_sketches)
+					{
+						t = omp_get_thread_num(); // スレッド番号の取得
+						int en = 0;
+						ne = num_nonempty[t];
+						q = table + t * table_size_thread;
+						buff = buff_pool + t * buff_size;
+						m = pn[t];
+						base_mask = bm[t]; base_mask2 = bm2[t];
+						n_spp = ps[t]; n_spp2 = ps2[t];
+						for(num_enum_sketches = 0; num_enum_sketches < num_sketch_thread; m++) // ここでは，データ数の制限はしない
 						{
-							int t = omp_get_thread_num(); // スレッド番号の取得
-							int k = 0;
-							int *d = data_num + num[t];
-							for(int p = sk_th[t]; p < sk_th[t + 1]; p++) {
-								sketch_type sk = (sketch_type)(buff_pool[p].sk);
-								for(int j = bkt[sk]; j < bkt[sk + 1]; j++, k++) {
-									#ifdef DATA_NUM_IN_SKETCH_ORDER
-									d[k] = j;
-									#else
-									d[k] = bucket->idx[j];
-									#endif
+							mask = base_mask;
+							for(int j = 0; j < q[m].num; j++) {
+								mask |= (1 << bd_idx[(int)q[m].dim[j]]);
+							}
+							sk = qs->sketch ^ mask;
+							if(bkt[sk + 1] > bkt[sk]) {// sk が空でなければ，buffに追加．ここでは，データ番号には展開しない
+								buff[ne++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - bkt[sk]};
+								en += bkt[sk + 1] - bkt[sk];
+							}
+							num_enum_sketches++;
+							if(q[m + 1].num == 0) { // 用意したパターンがなくなった．
+								if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
+									if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
+									n_spp = 0;
+									n_spp2++;
+									base_mask2 = 0;
+									for(int m = 0; m < table_spp[n_spp2].num; m++) {
+										base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
+									}
+								}
+								base_mask = base_mask2;
+								for(int m = 0; m < table_spp[n_spp].num; m++) {
+									base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
+								}
+								m = -1; // forの再初期化で m++ となって，0になる．
+								n_spp++;
+							}
+						}
+						// quick_selection をまとめて並列処理する場合は，いったん，すべてのスレッドでの列挙が終わってから，
+						// つまり，この並列ループが終わってから，別の並列ループで行う（並列処理の関数を呼び出す）
+						num_nonempty[t] = ne;
+						ivl->lg[t] = num_nonempty[t];
+						pn[t] = m;
+						bm[t] = base_mask; bm2[t] = base_mask2;
+						ps[t] = n_spp; ps2[t] = n_spp2;
+						num_enum_data[t] = en;
+					}
+					for(t = 0; t < nt; t++) {
+						total_enum_data += num_enum_data[t];
+					}
+					total_enum_sketch += num_sketch;
+					int num_rest = num_candidates * FACTOR_INF - total_enum_data; // 残りの候補数
+					if(num_rest > 0) {
+						#ifdef USE_AVE_ALL
+						#else
+						ave_num = (double)total_enum_data / total_enum_sketch;
+						#endif
+						num_sketch = num_rest / ave_num;
+						if(num_sketch < nt) num_sketch = nt;
+						num_sketch_thread = num_sketch / nt; 
+					}
+				} while (total_enum_data < num_candidates * FACTOR_INF);
+				int nc2 = quick_select_sum_k_interval_by_multi_thread(ivl, num_candidates);
+				if(nc2 == 0) {
+					fprintf(stderr, "q = %d, num_candidates = %d, nc2 = %d\n", qs->query.query_num, num_candidates, nc2);
+					getchar();
+				}
+				return nc2;
+			}
+			#else // USE_MU
+#ifdef USE_MU_COMMON
+			int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
+			{
+				int n = PARA_ENUM_INF;
+				int nt = (1 << n); // スレッド数
+				#ifdef _OPENMP
+				omp_set_num_threads(nt);
+				#endif
+				int *bd_idx = qs->idx;
+				int *bkt = bucket->bkt;
+
+				#ifndef THREAD_PLUS
+				int mu_thread_size = nt;
+				#else
+				int mu_thread_size = nt * (1 << THREAD_PLUS);
+				#endif
+
+				sketch_type mu_thread[mu_thread_size]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
+				mu_thread[0] = 0;			// このパターンの順序は，おそらく，ほとんど recall に影響しないので，INF 用の grey code 生成ルールを用いて準備する
+				for(int t = 0; t < mu_thread_size; t++) {
+					mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
+				}
+				// #define MU_SORT
+				#ifdef MU_SORT
+					int idx_mu[mu_thread_size];
+					dist_type pr_thread[mu_thread_size];
+					for(int t = 0; t < mu_thread_size; t++) {
+						pr_thread[t] = priority(qs->sketch ^ mu_thread[t], qs);
+						idx_mu[t] = t;
+					}
+					quick_sort(idx_mu, pr_thread, 0, mu_thread_size - 1);
+					sketch_type mu_temp[mu_thread_size];
+					dist_type pr_temp[mu_thread_size];
+					for(int t = 0; t < mu_thread_size; t++) {
+						mu_temp[t] = mu_thread[idx_mu[t]];
+						pr_temp[t] = pr_thread[idx_mu[t]];
+					}
+					for(int t = 0; t < mu_thread_size; t++) {
+						mu_thread[t] = mu_temp[t];
+						pr_thread[t] = pr_temp[t];
+				//		printf("pr[%d] = %d\n", t, pr_thread[t]);
+					}
+				//	getchar();
+				#endif
+
+				// ハミング距離順の列挙のための部分集合の表を用意する．
+				static sub_dimension *table_low = NULL;
+				static int table_low_size = 0;
+				#ifdef ENUM_DIM
+				int enum_dim = ENUM_DIM;
+				#else
+				int enum_dim = PJT_DIM - 22;	// ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+				#endif
+				#ifndef THREAD_PLUS
+				int low_dim = enum_dim - n;		// スレッドで固定する割り当て分の n-bit を減らす
+				#else
+				int low_dim = enum_dim - n - THREAD_PLUS;		// スレッドで固定する割り当て分の n-bit を減らす
+				#endif
+				if(table_low == NULL) {
+					table_low_size = (1 << low_dim) + nt;
+					table_low = make_table_for_enumeration_hamming(table_low_size, low_dim);
+					fprintf(stderr, "made table for hamming enumeration: low_dim = %d\n", low_dim);
+					use_system("VmSize");
+				}
+
+				int add_dim = SPP_BIT;
+				static int first = 1;
+				if(first) {
+					fprintf(stderr, "(*mu_common + post-selection) enum_hamm_interval multi-thread (%d-thread). low-add = %d-%d\n", nt, low_dim, add_dim);
+					first = 0;
+					use_system("VmSize");
+				}
+
+				static sub_dimension *table_add = NULL;
+				static int table_add_size = 0;
+				if(table_add == NULL) {
+					table_add_size = (1 << add_dim) + 1;
+					table_add = make_table_for_enumeration_hamming(table_add_size, add_dim);
+					fprintf(stderr, "make table for spplementary enumeation: add_dim = %d\n", add_dim);
+					use_system("VmSize");
+				}
+				
+				#ifdef DECAF
+				#define MAX_PRIORITY 1200
+				#elif defined(DEEP1B)
+				#define MAX_PRIORITY 500
+				#else
+				#define MAX_PRIORITY 200
+				#endif
+
+				#ifdef THREAD_PLUS
+				static vlist *vl[(1 << PARA_ENUM_INF) * (1 << THREAD_PLUS)][MAX_PRIORITY + 1];
+				#else
+				static vlist *vl[(1 << PARA_ENUM_INF)][MAX_PRIORITY + 1];
+				#endif
+//					#define PR_FACTOR 20
+//					dist_type max_priority = MAX_PRIORITY / PR_FACTOR;
+				dist_type max_priority = MAX_PRIORITY;
+//					for(int i = 0; i < low_dim + add_dim; i++) {
+//						max_priority += qs->bd[qs->idx[i]];
+//					}
+//					dist_type max_priority = priority(-1 ^ qs->sketch, qs);
+/*					static int max_priority_all = 0;
+				if(qs->query.query_num == 0) {
+					max_priority_all = max_priority;
+					fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
+				} else if(max_priority > max_priority_all) {
+					max_priority_all = max_priority;
+					fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
+				}
+				if(max_priority > MAX_PRIORITY) {
+					fprintf(stderr, "Too large max_priority (= %d), q = %d\n", max_priority, qs->query.query_num);
+					exit(1);
+				}
+*/					
+				int num_data_of_priority[mu_thread_size][max_priority + 1];
+				int lg_of_priority[mu_thread_size][max_priority + 1];
+				int total_enum_data[max_priority + 1];
+
+// fprintf(stderr, "max_priority = %d, max_low_priority = %d\n", max_priority, max_low_priority); getchar();
+//					if(qs->query.query_num == 0) {
+//						fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
+//					}
+				#ifndef VLIST_SIZE
+				#define VLIST_SIZE 10
+				#define VLIST_STEP 10
+				#endif
+
+				static int initialized_vlist = 0;
+				if(!initialized_vlist) {
+					for(int t = 0; t < mu_thread_size; t++) {
+						for(dist_type pr = 0; pr <= max_priority; pr++) {
+							vl[t][pr] = new_vlist(VLIST_SIZE, VLIST_STEP);
+						}
+					}
+					initialized_vlist = 1;
+				} else {
+					for(int t = 0; t < mu_thread_size; t++) {
+						for(dist_type pr = 0; pr <= max_priority; pr++) {
+							if(vl[t][pr] == NULL) {
+								vl[t][pr] = new_vlist(VLIST_SIZE, VLIST_STEP);
+							} else {
+								makenull_vlist(vl[t][pr]);
+							}
+						}
+					}
+				}
+				
+				for(int t = 0; t < mu_thread_size; t++) {
+					for(dist_type pr = 0; pr <= max_priority; pr++) {
+						if(vl[t][pr]->num_list != 0 || vl[t][pr]->num_data != 0) {
+							fprintf(stderr, "q = %d, invalid initialized vlist: num_list = %d, num_data = %d\n", qs->query.query_num, vl[t][pr]->num_list, vl[t][pr]->num_data);
+							getchar();
+						}
+					}
+				}
+				int num_enum_data[nt];		// スレッドが実際に列挙した空でないスケッチ数とデータ数
+				for(int t = 0; t < nt; t++) {
+					num_enum_data[t] = 0;
+				}
+				int mask_id = 0;								// 列挙する共通マスクのid（先頭を0とした連番）
+				int loop = FACTOR_INF2;									// まとめて共通マスク mu_mask を作成する個数
+				sketch_type mu_common[loop];
+				int total_data;
+				#ifdef THREAD_PLUS
+				int nn = n + THREAD_PLUS;
+				#else
+				int nn = n;
+				#endif
+				do {
+//						#pragma omp parallel for
+					for(int i = mask_id; i < mask_id + loop; i++) {
+						sketch_type mu_low = Mu(nn, low_dim, bd_idx, i % (1 << low_dim), table_low);
+						sketch_type mu_add = Mu(nn + low_dim, add_dim, bd_idx, i / (1 << low_dim), table_add);
+						mu_common[i - mask_id] = mu_low ^ mu_add;
+					}
+					mask_id += loop;
+					#pragma omp parallel 
+//						for(int t = 0; t < nt; t++)
+					{
+						int t = omp_get_thread_num();	// スレッド番号
+						#ifdef THREAD_PLUS
+						for(int tn = t * (1 << THREAD_PLUS); tn < (t + 1) * (1 << THREAD_PLUS); tn++) 
+						#else
+						int tn = t;
+						#endif
+						{
+							sketch_type sk0 = qs->sketch ^ mu_thread[tn];
+							int nd = 0;						// 一回の処理で各スレッドで求めたデータ数
+							for(int i = 0; i < loop; i++) {
+								sketch_type sk = sk0 ^ mu_common[i];
+								if(bkt[sk + 1] > bkt[sk]) {
+//										dist_type pr = priority(sk, qs) / PR_FACTOR;
+									dist_type pr = priority(sk, qs);
+									add_vlist(vl[tn][pr], (interval){pr, bkt[sk], bkt[sk + 1] - bkt[sk]});
+									nd += bkt[sk + 1] - bkt[sk];
 								}
 							}
+							num_enum_data[t] += nd;
+						}
+					}
+					total_data = 0;
+					for(int t = 0; t < nt; t++) {
+						total_data += num_enum_data[t];
+					}
+				} while (total_data < num_candidates * FACTOR_INF);
+// printf("q, %d, max_priority, %d, => ,", qs->query.query_num, max_priority);
+				int sd;
+				while(1) {
+					sd = 0;
+					for(int t = 0; t < mu_thread_size; t++) {
+						sd += vl[t][max_priority]->num_data;
+					}
+					if(sd != 0) break;
+					max_priority--;
+				}
+//					static int max_priority_all = 0;
+//					if(qs->query.query_num == 0) {
+//						max_priority_all = max_priority;
+//						fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
+//					} else if(max_priority > max_priority_all) {
+//						max_priority_all = max_priority;
+//						fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
+//					}
+// printf("%d\n", max_priority); getchar();
+				for(int pr = 0; pr <= max_priority; pr++) {
+					total_enum_data[pr] = 0;
+					for(int t = 0; t < mu_thread_size; t++) {
+						num_data_of_priority[t][pr] = lg_of_priority[t][pr] = 0;
+					}
+				}
+
+				// num_data_of_priority[t][pr] を pr = 0, ... , pr の累積に変更する．
+				// lg_of_priority[t][pr] も累積
+				for(int t = 0; t < mu_thread_size; t++) {
+					num_data_of_priority[t][0] += vl[t][0]->num_data;
+					lg_of_priority[t][0] += vl[t][0]->num_list;
+					for(int pr = 1; pr <= max_priority; pr++) {
+						num_data_of_priority[t][pr] += num_data_of_priority[t][pr - 1] + vl[t][pr]->num_data;
+						lg_of_priority[t][pr] += lg_of_priority[t][pr - 1] + vl[t][pr]->num_list;
+					}
+				}
+				// 全合計が目標のnum_candidatesを超える最小の優先度 final_priority を求める．
+				int final_priority = 0;
+				for(int pr = 0; pr <= max_priority; pr++) {
+					total_enum_data[pr] = 0;
+					for(int t = 0; t < mu_thread_size; t++) {
+						total_enum_data[pr] += num_data_of_priority[t][pr];
+					}
+					if(total_enum_data[pr] < num_candidates) final_priority = pr;
+				}
+				final_priority++;
+
+				// vl から ivl にまとめる
+				#pragma omp parallel for
+				for(int t = 0; t < mu_thread_size; t++) {
+					interval *buff = ivl->list + t * ivl->size;
+					int lg = 0;
+					for(int pr = 0; pr <= final_priority; pr++) {
+						if(vl[t][pr]->num_list == 0) continue;
+						memcpy(buff + lg, vl[t][pr]->elm, sizeof(interval) * vl[t][pr]->num_list);
+						lg += vl[t][pr]->num_list;
+//							for(int i = 0; i < vl[t][pr]->num_list; i++) {
+//								buff[lg++] = vl[t][pr]->elm[i];
+//							}
+					}
+					ivl->lg[t] = lg;
+				}
+				// printf("total_enum_data = %d ===> ", total_enum_data[final_priority]);
+				// final_priority の区間で余分なもの（データ数がnum_candidatesを超える部分）を削除
+				for(int t = mu_thread_size - 1; t >= 0; t--) {
+					interval *buff = ivl->list + t * ivl->size;
+					if(total_enum_data[final_priority] - (num_data_of_priority[t][final_priority] - num_data_of_priority[t][final_priority - 1]) >= num_candidates) {
+						ivl->lg[t] = lg_of_priority[t][final_priority - 1];
+						total_enum_data[final_priority] -= (num_data_of_priority[t][final_priority] - num_data_of_priority[t][final_priority - 1]);
+					} else {
+						int j = lg_of_priority[t][final_priority] - 1;
+						while(buff[j].priority >= final_priority && total_enum_data[final_priority] - buff[j].run >= num_candidates) {
+							total_enum_data[final_priority] -= buff[j--].run;
+						}
+						ivl->lg[t] = j;
+					}
+				}
+				return total_enum_data[final_priority];
+			}
+#else
+			// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（マスク生成関数muを使用）（multi-threasd）
+			int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
+			{
+				// fprintf(stderr, "(5) filtering_by_sketch_enumeration_hamming （multi-threasd）(Using Mu)\n"); exit(0);
+				int n = PARA_ENUM_INF;
+				int nt = (1 << n); // スレッド数
+				#ifdef _OPENMP
+				omp_set_num_threads(nt);
+				#endif
+				// ハミング距離順の列挙のための部分集合の表を用意する．
+				static sub_dimension *table = NULL;
+				static int table_size = 0;
+				#ifdef ENUM_DIM
+				int enum_dim = ENUM_DIM;
+				#else
+				int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+				#endif
+				if(table == NULL) {
+					table_size = (1 << enum_dim) + nt;
+					table = make_table_for_enumeration_hamming(table_size, enum_dim);
+					//　rearrange_table(nt, table, table_size);　// mu では表の並べ替えをしない（遅くなるようなら後で修正）
+					fprintf(stderr, "made table for hamming enumeration: enum_dim = %d\n", enum_dim);
+					use_system("VmSize");
+				}
+
+				static int first = 1;
+				if(first) {
+					#ifdef SELECT_SUM
+					fprintf(stderr, "(2*) ");
+					#else
+					fprintf(stderr, "(1*+mu) ");
+					#endif
+					#ifdef USE_DIFF_TABLE
+					fprintf(stderr, "enum_hamm_interval multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
+					#else
+					fprintf(stderr, "enum_hamm_interval multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
+					#endif
+					first = 0;
+					use_system("VmSize");
+				}
+
+				static sub_dimension *table_spp = NULL;
+				int spp_bit = SPP_BIT; // 追加のビット数
+				static int table_spp_size = 0;
+				if(table_spp == NULL) {
+					table_spp_size = (1 << spp_bit) + 1;
+					table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
+					fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
+					fprintf(stderr, "made table for hamming enumeration: spp_bit = %d\n", spp_bit);
+					use_system("VmSize");
+				}
+
+				int *bd_idx = qs->idx;
+				int *bkt = bucket->bkt;
+
+				// INTERVAL_WITH_PRIORITYが定義されているときは，interval_list をバッファとして用いることができる．
+				interval *buff_pool = ivl->list, *buff;
+				// 各スレッドで列挙するスケッチ数（空も含む）を同じにする．平均の2分の1くらい（FACTOR_INF2）にする．
+				// 実際にスレッドで求めたデータ数の合計を積算して，目標のデータ数を超えるまで繰り返す．
+				double ave_num = (double)bucket->num_data / (1 << PJT_DIM); // バケット（空も含む）の平均要素数
+//					typedef struct {
+//						int num_enum_data; 						// スレッドで求めたデータ数
+//						int num_nonempty;						// スレッドげ求めた空でないスケッチ数
+//						sketch_type mu_add;						// マスクパターン
+//						int add_p;								// add-bit カウンタの直前の値
+//					} struct_work_enum;
+//					struct_work_enum work[nt];
+				int num_enum_data[nt];
+				int total_enum_data = 0;
+//					int total_enum_sketch = 0;
+				// num_candidates  = 求めるデータ数（全体）
+				// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
+				// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
+				// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
+				// nt = スレッド数
+				int t;										// スレッド番号
+				int sj = 0;  									// スレッドが列挙したスレッド内でのスケッチ番号
+				int num_sketch = num_candidates * FACTOR_INF / ave_num; // 求めるスケッチの個数の期待値（FACTOR_INFで少し多めにする）
+				int ns = num_sketch / nt / FACTOR_INF2; 	// 各スレッドが一回の操作で求めるスケッチの個数（目標の2（FACTOR_INF2）分の1程度にしておく）
+				int num_nonempty[nt];						// スレッドが実際に列挙した空でないスケッチ数
+				sketch_type mu_low, mu_add[nt];
+				int add_c, add_p[nt];						// add-bit のカウンタ，直前のカウンタ
+				sketch_type sk;
+				for(t = 0; t < nt; t++) {
+					num_enum_data[t] = 0;
+					num_nonempty[t] = 0;
+					add_p[t] = -1;
+					mu_add[t] = 0;
+				}
+				int i, j;
+				int ne, nd, ap;
+				sketch_type md;
+				do {
+					#pragma omp parallel private(t, ne, nd, ap, md, add_c, mu_low, buff, i, j, sk)
+					{
+						t = omp_get_thread_num(); // スレッド番号の取得
+						nd = num_enum_data[t];
+						ne = num_nonempty[t];
+						ap = add_p[t];
+						md = mu_add[t];
+						buff = buff_pool + t * ivl->size;
+						for(j = sj;  j < sj + ns; j++) {
+							i = j * nt + t;
+							mu_low = Mu(0, enum_dim, bd_idx, i % (1 << enum_dim), table);
+							add_c = i / (1 << enum_dim);
+							if(add_c != ap) {
+								md = Mu(enum_dim, spp_bit, bd_idx, add_c, table_spp);
+								ap = add_c;
+							}
+							sk = qs->sketch ^ mu_low ^ md;
+							// sk が空でなければ，buffに追加．ここでは，データ番号には展開しない
+							if(bkt[sk + 1] > bkt[sk]) {
+								buff[ne++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - bkt[sk]};
+								nd += bkt[sk + 1] - bkt[sk];
+							}
+						}
+						// quick_selection をまとめて並列処理する場合は，いったん，すべてのスレッドでの列挙が終わってから，
+						// つまり，この並列ループが終わってから，別の並列ループで行う（並列処理の関数を呼び出す）
+						ivl->lg[t] = num_nonempty[t] = ne;
+						num_enum_data[t] = nd;
+						add_p[t] = ap;
+						mu_add[t] = md;
+					}
+					total_enum_data = 0;
+					for(t = 0; t < nt; t++) {
+						total_enum_data += num_enum_data[t];
+					}
+					sj += ns;
+					int num_rest = num_candidates * FACTOR_INF - total_enum_data; // 残りの候補数
+					if(num_rest > 0) {
+						#ifdef USE_AVE_ALL
+						#else
+						ave_num = (double) total_enum_data / (sj * nt);
+						#endif
+						num_sketch = num_rest / ave_num;
+						if(num_sketch < nt) num_sketch = nt;
+						ns = num_sketch / nt; 
+					}
+				} while (total_enum_data < num_candidates * FACTOR_INF);
+				int nc2 = quick_select_sum_k_interval_by_multi_thread(ivl, num_candidates);
+				if(nc2 == 0) {
+					fprintf(stderr, "q = %d, num_candidates = %d, nc2 = %d\n", qs->query.query_num, num_candidates, nc2);
+					getchar();
+				}
+				return nc2;
+			}
+#endif
+			int filtering_by_sketch_enumeration_hamming_interval_3(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
+			{
+				int n = PARA_ENUM_INF;
+				int nt = (1 << n); // スレッド数
+				#ifdef _OPENMP
+				omp_set_num_threads(nt);
+				#endif
+				int *bd_idx = qs->idx;
+				int *bkt = bucket->bkt;
+
+				sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
+				// このパターンの順序は，おそらく，ほとんど recall に影響しないので，INF 用の grey code 生成ルールを用いて準備する
+				mu_thread[0] = 0;
+				for(int t = 0; t < nt; t++) {
+					mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
+				}
+//					double ave_sample = (double)sample_nd / nt;
+
+				// ハミング距離順の列挙のための部分集合の表を用意する．
+				static sub_dimension *table_low = NULL;
+				static int table_low_size = 0;
+				#ifdef ENUM_DIM
+				int enum_dim = ENUM_DIM;
+				#else
+				int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+				#endif
+				int low_dim = enum_dim - n; // スレッドで固定する割り当て分の n-bit を減らす
+				if(table_low == NULL) {
+					table_low_size = (1 << low_dim) + nt;
+					table_low = make_table_for_enumeration_hamming(table_low_size, low_dim);
+					fprintf(stderr, "made table for hamming enumeration: low_dim = %d\n", low_dim);
+					use_system("VmSize");
+				}
+
+				int add_dim = SPP_BIT;
+				static int first = 1;
+				if(first) {
+					fprintf(stderr, "(mu**3+ps) enum_hamm_interval multi-thread (%d-thread). low-add = %d-%d\n", nt, low_dim, add_dim);
+					first = 0;
+					use_system("VmSize");
+				}
+
+				static sub_dimension *table_add = NULL;
+				static int table_add_size = 0;
+				if(table_add == NULL) {
+					table_add_size = (1 << add_dim) + 1;
+					table_add = make_table_for_enumeration_hamming(table_add_size, add_dim);
+					fprintf(stderr, "make table for spplementary enumeation: add_dim = %d\n", add_dim);
+					use_system("VmSize");
+				}
+
+				int num_enum_data[nt], num_nonempty[nt];		// スレッドが実際に列挙した空でないスケッチ数とデータ数
+				for(int t = 0; t < nt; t++) {
+					num_enum_data[t] = num_nonempty[t] = 0;
+				}
+				int mask_id = 0;								// 列挙する共通マスクのid（先頭を0とした連番）
+				int total_enum_data = 0;						// 求めたデータ数の合計
+				#define MAX_LOOP 4000
+				#define MIN_LOOP 200
+				sketch_type mu_common[MAX_LOOP];
+				int loop = 300;
+				do {
+//						#pragma omp parallel for
+					for(int i = mask_id; i < mask_id + loop; i++) {
+						sketch_type mu_low = Mu(n, low_dim, bd_idx, i % (1 << low_dim), table_low);
+						sketch_type mu_add = Mu(n + low_dim, add_dim, bd_idx, i / (1 << low_dim), table_add);
+						mu_common[i - mask_id] = mu_low ^ mu_add;
+					}
+					mask_id += loop;
+					#pragma omp parallel 
+					{
+						int t = omp_get_thread_num();	// スレッド番号
+						int ne = num_nonempty[t];		// 各スレッドで求めた空でないスケッチ数
+						int nd = 0;						// 一回の処理で各スレッドで求めたデータ数
+						interval *buff = ivl->list + t * ivl->size;
+						for(int i = 0; i < loop; i++) {
+							sketch_type sk = qs->sketch ^ mu_common[i] ^ mu_thread[t];
+							if(bkt[sk + 1] > bkt[sk]) {
+								buff[ne++] = (interval){priority(sk, qs), bkt[sk], bkt[sk + 1] - bkt[sk]};
+								nd += bkt[sk + 1] - bkt[sk];
+							}
+						}
+						num_nonempty[t] = ne;
+						num_enum_data[t] += nd;
+					}
+					total_enum_data = 0;
+					for(int t = 0; t < nt; t++) {
+						ivl->lg[t] = num_nonempty[t];
+						total_enum_data += num_enum_data[t];
+					}
+				} while (total_enum_data < num_candidates * FACTOR_INF);
+
+				int nc2 = quick_select_sum_k_interval_by_multi_thread(ivl, num_candidates);
+				if(nc2 == 0) {
+					fprintf(stderr, "q = %d, num_candidates = %d, nc2 = %d\n", qs->query.query_num, num_candidates, nc2);
+					getchar();
+				}
+				return nc2;
+			}
+			#endif // USE_MU
+			#else // SELECT_BY_PARA_MERGE　（上位のスケッチ選択を並列処理で行った後でマージ処理する）
+			// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（multi-threasd）
+			int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
+			{
+				int n = PARA_ENUM_INF;
+				int nt = (1 << n); // スレッド数
+				#ifdef _OPENMP
+				omp_set_num_threads(nt);
+				#endif
+
+				// ハミング距離順の列挙のための部分集合の表を用意する．
+				static sub_dimension *table = NULL;
+				static int table_size = 0;
+				#ifdef ENUM_DIM
+				int enum_dim = ENUM_DIM;
+				#else
+				int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+				#endif
+				if(table == NULL) {
+					table_size = (1 << enum_dim) + nt;
+					table = make_table_for_enumeration_hamming(table_size, enum_dim);
+					rearrange_table(nt, table, table_size);
+				}
+
+				static int first = 1;
+				if(first) {
+					#ifdef USE_DIFF_TABLE
+					fprintf(stderr, "(4) enum_hamm multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
+					#else
+					fprintf(stderr, "(4) enum_hamm multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
+					#endif
+					first = 0;
+				}
+
+				#define TABLE_SPP
+				// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
+				#ifdef TABLE_SPP
+				static sub_dimension *table_spp = NULL;
+				#ifdef SPP_BIT
+				int spp_bit = SPP_BIT; // 追加のビット数
+				#else
+				int spp_bit = 17; // 追加のビット数
+				#endif
+				static int table_spp_size = 0;
+				if(table_spp == NULL) {
+					table_spp_size = (1 << spp_bit) + 1;
+					table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
+					fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
+					#ifdef USE_DIFF_TABLE
+					for(int i = 0; i < table_spp_size - 1; i++) {
+						diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
+						if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
+					}
+					#endif
+				}
+				#endif
+
+				#ifndef WITHOUT_IDX
+				int *bd_idx = qs->idx;
+				#endif
+				int *bkt = bucket->bkt;
+
+				// num_candidates  = 求めるデータ数（全体）
+				// data_num[] = 求めたデータ番号を格納する配列
+				// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
+				// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
+				// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
+				// nt = スレッド数
+				int num_data_thread = num_candidates / nt;	// スレッド求めるデータ番号数
+				int t;										// スレッド番号
+				int m;  									// スレッドが列挙したスケッチ数（パターン番号）
+				int num_nonempty;							// スレッドが実際に列挙した空でないスケッチ数
+				int k;  									// スレッドが求めたデータ番号数
+				int table_size_thread = table_size / nt;	// スレッドが用いる列挙する部分集合のパターン配列の大きさ
+				sub_dimension *q;							// スレッドが用いる列挙する部分集合のパターン配列
+				int *d;										// スレッドが求めたデータ番号を格納する配列
+				sketch_type base_mask = 0, base_mask2 = 0;	// 追加パターンで作成する mask
+				int n_spp, n_spp2;							// 追加で使用するパターン番号
+				sketch_type sk, mask;
+
+				double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
+				int num_sketch = num_candidates * FACTOR_INF / ave_num; // 求めるスケッチの個数（FACTOR_INFで少し多めにする）
+				int num_sketch_thread = num_sketch / nt; // 各スレッドが求めるスケッチの個数（注意：このスケッチ数では，データ数が num_data_thread に達しない可能性がある）
+				static int buff_pool_size = 0;
+				int num_enumerated_data_thread[nt]; // スレッドで列挙したスケッチを持つデータ数
+				int num_selected_sketches[nt]; // 列挙後に quick_select で選択した priority 上位のスケッチ数
+				int num_selected_data[nt]; // 上のスケッチをもつデータ数
+				#ifdef SELECT_SUM
+					static sketch_with_priority_num *buff_pool = NULL;
+					if(buff_pool == NULL || buff_pool_size < num_sketch_thread * nt) {
+						if(buff_pool != NULL) {
+							FREE(buff_pool, sizeof(sketch_with_priority_num) * buff_pool_size);
+						}
+						buff_pool_size = num_sketch_thread * nt;
+						fprintf(stderr, "malloc answer buffer, ");
+						buff_pool = MALLOC(sizeof(sketch_with_priority_num) * buff_pool_size);
+						fprintf(stderr, "OK: buff_pool_size = %d, num_thread = %d\n", buff_pool_size, nt);
+					}
+					sketch_with_priority_num *buff;
+				#else
+					static answer_type *buff_pool = NULL;
+					if(buff_pool == NULL || buff_pool_size < num_sketch_thread * nt) {
+						if(buff_pool != NULL) {
+							FREE(buff_pool, sizeof(answer_type) * buff_pool_size);
+						}
+						buff_pool_size = num_sketch_thread * nt;
+						fprintf(stderr, "malloc answer buffer, ");
+						buff_pool = MALLOC(sizeof(answer_type) * buff_pool_size);
+						fprintf(stderr, "OK: buff_pool_size = %d, num_thread = %d\n", buff_pool_size, nt);
+					}
+					answer_type *buff;
+				#endif
+
+				#pragma omp parallel private(t, m, num_nonempty, k, q, d, base_mask, base_mask2, n_spp, n_spp2, buff, sk, mask)
+				{
+					t = omp_get_thread_num(); // スレッド番号の取得
+					m = 0;
+					num_nonempty = 0;
+					k = 0;
+					q = table + t * table_size_thread;
+					d = data_num + t * num_data_thread;
+					base_mask = base_mask2 = 0;
+					n_spp = n_spp2 = 1;
+					buff = buff_pool + t * num_sketch_thread;
+
+					for(m = 0; num_nonempty < num_sketch_thread /* && k < num_data_thread * 3 // ここでは，データ数の制限はしない */; m++) {
+						mask = base_mask;
+						for(int j = 0; j < q[m].num; j++) {
+							#ifndef WITHOUT_IDX
+							mask |= (1 << bd_idx[(int)q[m].dim[j]]);
+							#else
+							mask |= (1 << (int)q[m].dim[j]);
+							#endif
+						}
+						sk = qs->sketch ^ mask;
+						if(bkt[sk + 1] > bkt[sk]) { // sk が空でなければ，buffに追加．ここでは，データ番号には展開しない
+							#ifdef SELECT_SUM
+							buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
+							#else
+							buff[num_nonempty++] = (answer_type){sk, priority(sk, qs)};
+							#endif
+							k += bkt[sk + 1] - bkt[sk];
+						}
+						if(q[m + 1].num == 0) { // 用意したパターンがなくなった．
+							#ifdef TABLE_SPP
+								if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
+									if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
+									n_spp = 0;
+									n_spp2++;
+									base_mask2 = 0;
+									for(int m = 0; m < table_spp[n_spp2].num; m++) {
+										#ifndef WITHOUT_IDX
+										base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
+										#else
+										base_mask2 |= (1 << ((int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
+										#endif
+									}
+								}
+								base_mask = base_mask2;
+								for(int m = 0; m < table_spp[n_spp].num; m++) {
+									#ifndef WITHOUT_IDX
+									base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
+									#else
+									base_mask |= (1 << ((int)table_spp[n_spp].dim[m] + enum_dim));
+									#endif
+								}
+								m = -1; // forの再初期化で m++ となって，0になる．
+								n_spp++;
+							#else
+								while(k < num_data_thread) {
+									d[k++] = 0;
+								}
+							#endif
+						}
+					}
+					num_enumerated_data_thread[t] = k;
+					#ifdef SELECT_SUM
+						if(k > num_data_thread * FACTOR_INF) { // 列挙したスケッチを持つデータ数が十分多いときは，priority 上位のものを選択する．
+							num_selected_sketches[t] = quick_select_sum_k_sketch_with_priority_num(buff, 0, num_nonempty - 1, num_data_thread * FACTOR_INF);
+							num_selected_data[t] = num_data_thread * FACTOR_INF;
+						} else {
+							num_selected_sketches[t] = num_nonempty;
+							num_selected_data[t] = num_enumerated_data_thread[t];
 						}
 					#else
-						k = 0;
-						for(int i = 0; i < num_enumerated_sketches; i++) {
-							s = buff_pool[i].sk;
-							for(int j = bkt[s]; j < bkt[s + 1] && k < num_candidates; j++, k++) {
+						int sel = (num_sketch / nt < num_nonempty ? num_sketch / nt : num_nonempty);
+						quick_select_k_answer(buff, 0, num_nonempty - 1, sel * 0.4);
+					#endif
+				}
+
+				// スレッドでSELECTしたスケッチを詰め合わせ，それからSELECTする．
+				int total_num_selected_sketches = num_selected_sketches[0];
+				int total_num_data_enumerated = num_selected_data[0];
+				for(int t = 1; t < nt; t++) {
+					memcpy(buff_pool + total_num_selected_sketches, buff_pool + t * num_sketch_thread, sizeof(sketch_with_priority_num) * num_selected_sketches[t]);
+					total_num_selected_sketches += num_selected_sketches[t];
+					total_num_data_enumerated += num_selected_data[t];
+				}
+				if(total_num_data_enumerated < num_candidates * FACTOR_INF) { // 列挙したスケッチのデータ総数が少ないときは，目標の候補数を減らす．
+					num_candidates = total_num_data_enumerated / FACTOR_INF;
+				}
+
+				int nk = quick_select_sum_k_sketch_with_priority_num(buff_pool, 0, total_num_selected_sketches - 1, num_candidates);
+
+				#if defined(_OPENMP) && NUM_THREADS > 1
+					omp_set_num_threads(nk < NUM_THREADS ? nk : NUM_THREADS);
+					nt = omp_get_max_threads(); 	// スレッド数を求める
+					int sk_th[nt + 1]; // スレッドが列挙するスケッチの先頭位置．スレッド t が列挙するスケッチは，sk_th[t] から sk_th[t + 1] - 1 まで． 
+					int num[nt]; // スレッド 0 から スレッド t - 1 が列挙するスケッチのデータ数の合計．スレッド t が列挙したスケッチのデータは，data_num[num[t]] から data_num[num[t + 1] - 1] まで．
+					int p = 0, sum = 0;
+					for(int t = 0; t < nt; t++) {
+						while(sum < (num_candidates / nt) * t) {
+							sum += buff_pool[p++].num;
+						}
+						sk_th[t] = p; 
+						num[t] = sum;
+					}
+					sk_th[nt] = nk;
+					#pragma omp parallel
+					{
+						int t = omp_get_thread_num(); // スレッド番号の取得
+						int k = 0;
+						int *d = data_num + num[t];
+						for(int p = sk_th[t]; p < sk_th[t + 1]; p++) {
+							sketch_type sk = (sketch_type)(buff_pool[p].sk);
+							for(int j = bkt[sk]; j < bkt[sk + 1]; j++, k++) {
 								#ifdef DATA_NUM_IN_SKETCH_ORDER
-								data_num[k] = j;
+								d[k] = j;
 								#else
-								data_num[k] = bucket->idx[j];
+								d[k] = bucket->idx[j];
 								#endif
 							}
 						}
-					#endif
+					}
+				#else
+					k = 0;
+					for(int i = 0; i < num_enumerated_sketches; i++) {
+						s = buff_pool[i].sk;
+						for(int j = bkt[s]; j < bkt[s + 1] && k < num_candidates; j++, k++) {
+							#ifdef DATA_NUM_IN_SKETCH_ORDER
+							data_num[k] = j;
+							#else
+							data_num[k] = bucket->idx[j];
+							#endif
+						}
+					}
 				#endif
 
 				return num_candidates;
+
 			}
-			#endif // SELECT_BY_SINGLE
-		#endif // PARA_ENUM_INF
-	#endif //SELECT_BY_PRIORITY_AFTER_ENUMERATION
+			#endif // SELECT_BY_PARA_MERGE
+		#else // !SELECT_BY_SINGLE 
+		// スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）（multi-threasd）
+		// スケッチのD1上位選択をsingle-threadで行う．
+		int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
+		{
+			int n = PARA_ENUM_INF;
+			int nt = (1 << n); // スレッド数
+			#ifdef _OPENMP
+			omp_set_num_threads(nt);
+			#endif
+
+			// ハミング距離順の列挙のための部分集合の表を用意する．
+			static sub_dimension *table = NULL;
+			static int table_size = 0;
+			#ifdef ENUM_DIM
+			int enum_dim = ENUM_DIM;
+			#else
+			int enum_dim = PJT_DIM - 22; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
+			#endif
+			if(table == NULL) {
+				table_size = (1 << enum_dim) + nt;
+				table = make_table_for_enumeration_hamming(table_size, enum_dim);
+				rearrange_table(nt, table, table_size);
+			fprintf(stderr, "made table for hamming enumeration: enum_dim = %d\n", enum_dim);
+			use_system("VmSize");
+			}
+
+			static int first = 1;
+			if(first) {
+				#ifdef USE_DIFF_TABLE
+				fprintf(stderr, "(3) enum_hamm multi-thread (%d-thread). using diff table, enum_dim = %d\n", nt, enum_dim);
+				#else
+				fprintf(stderr, "(3) enum_hamm multi-thread (%d-thread). using table, enum_dim = %d\n", nt, enum_dim);
+				#endif
+				first = 0;
+			use_system("VmSize");
+			}
+
+			#define TABLE_SPP
+			// tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
+			#ifdef TABLE_SPP
+			static sub_dimension *table_spp = NULL;
+			#ifdef SPP_BIT
+			int spp_bit = SPP_BIT; // 追加のビット数
+			#else
+			int spp_bit = 17; // 追加のビット数
+			#endif
+			static int table_spp_size = 0;
+			if(table_spp == NULL) {
+				table_spp_size = (1 << spp_bit) + 1;
+				table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
+				fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
+				#ifdef USE_DIFF_TABLE
+				for(int i = 0; i < table_spp_size - 1; i++) {
+					diff(&table_spp[i], &table_spp[i + 1], &table_spp[i]);
+					if(table_spp[i + 1].num == 0) break; // 次が空集合になったら終了
+				}
+				#endif
+			fprintf(stderr, "made table for hamming enumeration: spp_bit = %d\n", spp_bit);
+			use_system("VmSize");
+			}
+			#endif
+
+			#ifndef WITHOUT_IDX
+			int *bd_idx = qs->idx;
+			#endif
+			int *bkt = bucket->bkt;
+
+			// num_candidates  = 求めるデータ数（全体）
+			// data_num[] = 求めたデータ番号を格納する配列
+			// table[] = 部分集合を要素数の昇順に列挙するパターンを格納した配列
+			// bd_idx[] = 相対位置でビット操作をするための距離下限の順位表
+			// bkt[] = バケット表（bkt[s] = データをスケッチ順に並べたときに，スケッチ S のデータの先頭位置）
+			// nt = スレッド数
+			int num_data_thread = num_candidates / nt;	// スレッドが求めるデータ番号数の目標（これに達しないかもしれない）
+			int t;										// スレッド番号
+			int m;  									// スレッドが列挙したスケッチ数（パターン番号）
+			int num_nonempty;							// スレッドが実際に列挙した空でないスケッチ数
+			int k;  									// スレッドが求めたデータ番号数
+			int table_size_thread = table_size / nt;	// スレッドが用いる列挙する部分集合のパターン配列の大きさ
+			sub_dimension *q;							// スレッドが用いる列挙する部分集合のパターン配列
+			int *d;										// スレッドが求めたデータ番号を格納する配列
+			sketch_type base_mask = 0, base_mask2 = 0;	// 追加パターンで作成する mask
+			int n_spp, n_spp2;							// 追加で使用するパターン番号
+			sketch_type sk, mask;
+
+			double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
+			int num_sketches_thread = num_candidates * FACTOR_INF / ave_num / nt; // スレッドが求めるスケッチ数（目標のデータ数より多めになるようにしておく）
+			int num_sketches = num_sketches_thread * nt; // 列挙で求めるスケッチの総数
+			static int buff_pool_size = 0;
+			#ifdef SELECT_SUM
+				static sketch_with_priority_num *buff_pool = NULL;
+				if(buff_pool == NULL || buff_pool_size < num_sketches) {
+					if(buff_pool != NULL) {
+						FREE(buff_pool, sizeof(sketch_with_priority_num) * buff_pool_size);
+					}
+					buff_pool_size = num_sketches;
+					fprintf(stderr, "malloc answer buffer, ");
+					buff_pool = MALLOC(sizeof(sketch_with_priority_num) * buff_pool_size);
+					fprintf(stderr, "OK: buff_pool_size = %d, num_thread = %d\n", buff_pool_size, nt);
+				}
+				int num_enumerated_data_thread[nt];
+				sketch_with_priority_num *buff;
+			#else
+				static answer_type *buff_pool = NULL;
+				if(buff_pool == NULL || buff_pool_size < num_sketch_thread * nt) {
+					if(buff_pool != NULL) {
+						FREE(buff_pool, sizeof(answer_type) * buff_pool_size);
+					}
+					buff_pool_size = num_sketch_thread * nt;
+					fprintf(stderr, "malloc answer buffer, ");
+					buff_pool = MALLOC(sizeof(answer_type) * buff_pool_size);
+					fprintf(stderr, "OK: buff_pool_size = %d, num_thread = %d\n", buff_pool_size, nt);
+				}
+				answer_type *buff;
+			#endif
+
+			#pragma omp parallel private(t, m, num_nonempty, q, d, base_mask, base_mask2, n_spp, n_spp2, buff, sk, mask)
+			{
+				t = omp_get_thread_num(); // スレッド番号の取得
+				m = 0;
+				num_nonempty = 0;
+				q = table + t * table_size_thread;
+				d = data_num + t * num_data_thread;
+				base_mask = base_mask2 = 0;
+				n_spp = n_spp2 = 1;
+				buff = buff_pool + t * num_sketches_thread;
+				num_enumerated_data_thread[t] = 0;
+
+				for(m = 0; num_nonempty < num_sketches_thread; m++) {
+					mask = base_mask;
+					for(int j = 0; j < q[m].num; j++) {
+						#ifndef WITHOUT_IDX
+						mask |= (1 << bd_idx[(int)q[m].dim[j]]);
+						#else
+						mask |= (1 << (int)q[m].dim[j]);
+						#endif
+					}
+					sk = qs->sketch ^ mask;
+					// sk が空でなければ，buffに追加．ここでは，データ番号には展開しない
+					if(bkt[sk + 1] > bkt[sk]) {
+						#ifdef SELECT_SUM
+						buff[num_nonempty++] = (sketch_with_priority_num){sk, priority(sk, qs), bkt[sk + 1] - bkt[sk]};
+						#else
+						buff[num_nonempty++] = (answer_type){sk, priority(sk, qs)};
+						#endif
+						num_enumerated_data_thread[t] += bkt[sk + 1] - bkt[sk];
+					}
+					if(q[m + 1].num == 0) { // 用意したパターンがなくなった．
+						#ifdef TABLE_SPP
+							if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
+								if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
+								n_spp = 0;
+								n_spp2++;
+								base_mask2 = 0;
+								for(int m = 0; m < table_spp[n_spp2].num; m++) {
+									#ifndef WITHOUT_IDX
+									base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
+									#else
+									base_mask2 |= (1 << ((int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit));
+									#endif
+								}
+							}
+							base_mask = base_mask2;
+							for(int m = 0; m < table_spp[n_spp].num; m++) {
+								#ifndef WITHOUT_IDX
+								base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
+								#else
+								base_mask |= (1 << ((int)table_spp[n_spp].dim[m] + enum_dim));
+								#endif
+							}
+							m = -1; // forの再初期化で m++ となって，0になる．
+							n_spp++;
+						#else
+
+						#endif
+					}
+				}
+
+			}
+
+			#ifdef SELECT_SUM
+				int total_num_data_enumerated = 0, num_selected_sketches;
+				for(int t = 0; t < nt; t++) {
+					total_num_data_enumerated += num_enumerated_data_thread[t];
+				}
+				if(total_num_data_enumerated < num_candidates * FACTOR_INF) { // 列挙したスケッチのデータ総数が少ないときは，目標の候補数を減らす．
+					num_candidates = total_num_data_enumerated / FACTOR_INF;
+				}
+				num_selected_sketches = quick_select_sum_k_sketch_with_priority_num(buff_pool, 0, buff_pool_size - 1, num_candidates);
+			#else
+				int sel = (num_sketch / nt < num_nonempty ? num_sketch / nt : num_nonempty);
+				quick_select_k_answer(buff, 0, num_nonempty - 1, sel * 0.4);
+			#endif
+
+			#ifdef SELECT_SUM
+				#if defined(_OPENMP) && NUM_THREADS > 1
+					omp_set_num_threads(num_selected_sketches < NUM_THREADS ? num_selected_sketches : NUM_THREADS);
+					nt = omp_get_max_threads(); 	// スレッド数を求める
+					int sk_th[nt + 1]; // スレッドが列挙するスケッチの先頭位置．スレッド t が列挙するスケッチは，sk_th[t] から sk_th[t + 1] - 1 まで． 
+					int num[nt]; // スレッド 0 から スレッド t - 1 が列挙するスケッチのデータ数の合計．スレッド t が列挙したスケッチのデータは，data_num[num[t]] から data_num[num[t + 1] - 1] まで．
+					int p = 0, sum = 0;
+					for(int t = 0; t < nt; t++) {
+						while(sum < (num_candidates / nt) * t) {
+							sum += buff_pool[p++].num;
+						}
+						sk_th[t] = p; 
+						num[t] = sum;
+					}
+					sk_th[nt] = num_selected_sketches;
+					#pragma omp parallel
+					{
+						int t = omp_get_thread_num(); // スレッド番号の取得
+						int k = 0;
+						int *d = data_num + num[t];
+						for(int p = sk_th[t]; p < sk_th[t + 1]; p++) {
+							sketch_type sk = (sketch_type)(buff_pool[p].sk);
+							for(int j = bkt[sk]; j < bkt[sk + 1]; j++, k++) {
+								#ifdef DATA_NUM_IN_SKETCH_ORDER
+								d[k] = j;
+								#else
+								d[k] = bucket->idx[j];
+								#endif
+							}
+						}
+					}
+				#else
+					k = 0;
+					for(int i = 0; i < num_enumerated_sketches; i++) {
+						s = buff_pool[i].sk;
+						for(int j = bkt[s]; j < bkt[s + 1] && k < num_candidates; j++, k++) {
+							#ifdef DATA_NUM_IN_SKETCH_ORDER
+							data_num[k] = j;
+							#else
+							data_num[k] = bucket->idx[j];
+							#endif
+						}
+					}
+				#endif
+			#endif
+
+			return num_candidates;
+		}
+		#endif // SELECT_BY_SINGLE
+	#endif // PARA_ENUM_INF
 
 #elif defined(WITH_DIFF)
 // スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）(1)
@@ -5389,7 +3481,6 @@ int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_buck
 				data_num[k] = bucket->idx[j];
 				#endif
 			}
-//			fprintf(stderr, "sk = %d, k = %d\n", sk_n, k); getchar();
 			#ifndef WITHOUT_IDX
 			sk_p = sk_n;
 			#endif
@@ -5397,12 +3488,8 @@ int filtering_by_sketch_enumeration_hamming(struct_query_sketch *qs, struct_buck
 		}
 	}
 	return k;
-//	if(n > max_n) {
-//		fprintf(stderr, "n = %d, k = %d\n", n, k);
-//		max_n = n;
-//	}
 }
-#ifdef USE_INTERVAL
+
 int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
 {
 	sketch_type sk_n; 
@@ -5475,7 +3562,6 @@ int filtering_by_sketch_enumeration_hamming_interval(struct_query_sketch *qs, st
 	}
 	return k;
 }
-#endif // USE_INTERVAL
 #endif
 
 #ifndef FACTOR_INF
@@ -5610,7 +3696,6 @@ int filtering_by_sketch_enumeration(struct_query_sketch *qs, struct_bucket *buck
 	return k;
 }
 
-#ifdef USE_INTERVAL
 // スケッチ列挙によるフィルタリング（バケット（配列 idx と bkt）利用）
 int filtering_by_sketch_enumeration_interval(struct_query_sketch *qs, struct_bucket *bucket, struct_que *que, interval_list *ivl, int num_candidates)
 {
@@ -5654,7 +3739,6 @@ int filtering_by_sketch_enumeration_interval(struct_query_sketch *qs, struct_buc
 	ivl->lg[0] = num_sk;
 	return k;
 }
-#endif
 
 int filtering_by_sketch_enumeration_sketch(struct_query_sketch *qs, struct_bucket *bucket, struct_que *que, sketch_type sketch[], int num_candidates)
 {
@@ -5916,7 +4000,6 @@ int filtering_by_sketch_enumeration_c2_n(struct_query_sketch *qs, struct_bucket 
 	return k;
 }
 
-#ifdef USE_INTERVAL
 #if !defined(THREAD_PLUS) || THREAD_PLUS == 0
 #if PARA_ENUM_INF == 0
 int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, interval_list *ivl, int num_candidates)
@@ -5942,7 +4025,6 @@ int filtering_by_sketch_enumeration_c2_n_interval_st(struct_query_sketch *qs, st
 	int nt = ivl->nt;
 
 	s = qs->sketch; // 先頭は質問のスケッチ
-//	priority = 0;
 	int k = 0;
 	int num_sk = 0; // 列挙したスケッチ数
 	if(bkt[s] < bkt[s + 1]) { // 空でないバケツの始めと終わりを追加
@@ -5950,30 +4032,17 @@ int filtering_by_sketch_enumeration_c2_n_interval_st(struct_query_sketch *qs, st
 		int t = num_sk % nt;
 		int lg = num_sk / nt;
 		ivl->lg[t] = lg;
-//		ivl->list[t * ivl->size + lg] = (interval){priority, bkt[s], bkt[s + 1] - bkt[s]};
-//		ivl->list[t * ivl->size + lg] = (interval){bkt[s], bkt[s + 1] - bkt[s]};
-		#ifdef INTERVAL_WITH_RUN
 		ivl->list[t * ivl->size + lg] = (interval){bkt[s], bkt[s + 1] - bkt[s]};
-		#else
-		ivl->list[t * ivl->size + lg] = (interval){bkt[s], bkt[s + 1] - 1};
-		#endif
 		k += bkt[s + 1] - bkt[s];
 	}
 
 	s = s ^ (1 <<  bd_idx[0]); // 先頭の次は、質問のスケッチと距離下限が最小のビットだけが異なるもの
 	if(bkt[s] < bkt[s + 1]) { // 空でないバケツの始めと終わりを追加
-//		priority = qs->bd[bd_idx[0]];
 		num_sk++;
 		int t = num_sk % nt;
 		int lg = num_sk / nt;
 		ivl->lg[t] = lg;
-//		ivl->list[t * ivl->size + lg] = (interval){priority, bkt[s], bkt[s + 1] - bkt[s]};
-//		ivl->list[t * ivl->size + lg] = (interval){bkt[s], bkt[s + 1] - bkt[s]};
-		#ifdef INTERVAL_WITH_RUN
 		ivl->list[t * ivl->size + lg] = (interval){bkt[s], bkt[s + 1] - bkt[s]};
-		#else
-		ivl->list[t * ivl->size + lg] = (interval){bkt[s], bkt[s + 1] - 1};
-		#endif
 		k += bkt[s + 1] - bkt[s];
 	}
 
@@ -5994,15 +4063,7 @@ int filtering_by_sketch_enumeration_c2_n_interval_st(struct_query_sketch *qs, st
 			int t = num_sk % nt;
 			int lg = num_sk / nt;
 			ivl->lg[t] = lg;
-			#ifdef INTERVAL_WITH_RUN
-			#ifdef INTERVAL_WITH_PRIORITY
-			ivl->list[t * ivl->size + lg] = (interval){0, bkt[s], bkt[s + 1] - bkt[s]};
-			#else
 			ivl->list[t * ivl->size + lg] = (interval){bkt[s], bkt[s + 1] - bkt[s]};
-			#endif
-			#else
-			ivl->list[t * ivl->size + lg] = (interval){bkt[s], bkt[s + 1] - 1};
-			#endif
 			k += bkt[s + 1] - bkt[s];
 		}
 
@@ -6099,11 +4160,7 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 	if(first) {
 		#ifndef WITHOUT_IDX
 		fprintf(stderr, "filtering_by_sketch_enumeration_c2_n_interval single-thread WITH_IDX: thread_plus = %d", THREAD_PLUS);
-		#ifdef INTERVAL_WITH_PRIORITY
-		fprintf(stderr, ", INTERVAL_WITH_PRIORITY\n");
-		#else
 		fprintf(stderr, ", !INTERVAL_WITH_PRIORITY\n");
-		#endif
 		fprintf(stderr, "ivl->nt = %d, ivl->size = %d, num_candidates = %d\n", ivl->nt, ivl->size, num_candidates);
 		#else
 		fprintf(stderr, "filtering_by_sketch_enumeration_c2_n_interval %d-thread WITHOUT_IDX. \n", nt);
@@ -6138,30 +4195,6 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 	#endif
 //	fprintf(stderr, "OK\n");
 
-	#ifdef INTERVAL_WITH_PRIORITY
-	// 区間に priority を含めるときは，先頭の分担で最後に求めた区間の優先順位 pr を覚えておき，
-	// 先頭以外の分担では，pr を超える優先順位の区間が得られている可能性が多いので，
-	// pr 以下の区間の個数と区間長の合計（候補データ数に相当）を記録して，
-	// 目標のデータ数に達した時点で，pr を超える部分を取り除いく（実際にはリスト長を短くするだけ）
-//	fprintf(stderr, "set pr_thread and num_intervals\n");
-	dist_type pr_thread[mu_thread_size], pr;
-	for(int t = 0; t < mu_thread_size; t++) {
-		pr_thread[t] = priority(mu_thread[t] ^ qs->sketch, qs);
-	}
-	#ifdef PARALLEL_ENUM
-		int num_intervals[1 << PARALLEL_ENUM];
-		for(int tt = 0; tt < (1 << PARALLEL_ENUM); tt++) {
-			num_intervals[tt] = 0;
-		}
-	#else
-		int num_intervals[mu_thread_size];
-		for(int t = 0; t < mu_thread_size; t++) {
-			num_intervals[t] = 0;
-		}
-	#endif
-//	fprintf(stderr, "pr_thread: mu_thread_size = %d, num_intervals: tt = 0 ,,, %d OK", mu_thread_size, 1 << PARALLEL_ENUM); getchar();
-	#endif
-
 	// 下位 THREAD_PLUS ビットは，スレッド毎に割り当てた mu_thread[t] との XOR で求める．
 	// それ以降の PJT_DIM - THREAD_PLUS ビットのみを変化させた，スケッチを列挙する（下位 THREAD_PLUS ビットは，質問のまま）
 
@@ -6170,9 +4203,6 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 	int nc0;
 
 	s = qs->sketch; // 先頭は質問のスケッチ
-	#ifdef INTERVAL_WITH_PRIORITY
-	pr = 0;
-	#endif
 	nc0 = 0;
 
 // mu_thread_size = 1 << THREAD_PLUS 個に分割している．
@@ -6197,26 +4227,14 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 			int tt = t;
 			#endif
 			interval *buff = ivl->list + tt * ivl->size;
-			#ifndef INTERVAL_WITH_PRIORITY
-				buff[ivl->lg[tt]++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-				nc0 += bkt[sk + 1] - bkt[sk];
-			#else
-				buff[ivl->lg[tt]++] = (interval){pr_thread[t], bkt[sk], bkt[sk + 1] - bkt[sk]};
-				if(pr_thread[t] <= pr) {
-					num_intervals[tt]++;
-					nc0 += bkt[sk + 1] - bkt[sk];
-				}
-//				fprintf(stderr, "pr = %d, pr_thread[%d] = %d, lg[%d] = %d, num_intervals[%d] = %d\n", pr, t, pr_thread[t], tt, ivl->lg[tt], tt, num_intervals[tt]);
-			#endif
+			buff[ivl->lg[tt]++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
+			nc0 += bkt[sk + 1] - bkt[sk];
 		}
 	}
 	nc += nc0;
 
 	if(nc >= num_candidates) goto ret;
 	s = s ^ (1 <<  bd_idx[nn]); // 先頭の次は、質問のスケッチと距離下限が最小のビットだけが異なるもの
-	#ifdef INTERVAL_WITH_PRIORITY
-	pr = bd[bd_idx[nn]];
-	#endif
 
 	nc0 = 0;
 	for(int t = 0; t < mu_thread_size; t++) {
@@ -6229,21 +4247,8 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 			int tt = t;
 			#endif
 			interval *buff = ivl->list + tt * ivl->size;
-			#ifndef INTERVAL_WITH_PRIORITY
-				buff[ivl->lg[tt]++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-				nc0 += bkt[sk + 1] - bkt[sk];
-			#else
-				buff[ivl->lg[tt]++] = (interval){pr + pr_thread[t], bkt[sk], bkt[sk + 1] - bkt[sk]};
-				if(t == 0) {
-					nc0 += bkt[sk + 1] - bkt[sk];
-					continue;
-				}
-				for(int i = num_intervals[tt]; i < ivl->lg[tt]; i++) {
-					if(buff[i].priority > pr) break;
-					num_intervals[tt]++;
-					nc0 += buff[i].run;
-				}
-			#endif
+			buff[ivl->lg[tt]++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
+			nc0 += bkt[sk + 1] - bkt[sk];
 		}
 	}
 	nc += nc0;
@@ -6260,9 +4265,6 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 
 	while(deq_c2_n(&qu, que)) {
 		s = que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-		#ifdef INTERVAL_WITH_PRIORITY
-		pr = qu.key;
-		#endif
 		nc0 = 0;
 		for(int t = 0; t < mu_thread_size; t++) {
 			sketch_type sk = s ^ mu_thread[t];
@@ -6274,21 +4276,8 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 				int tt = t;
 				#endif
 				interval *buff = ivl->list + tt * ivl->size;
-				#ifndef INTERVAL_WITH_PRIORITY
-					buff[ivl->lg[tt]++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-					nc0 += bkt[sk + 1] - bkt[sk];
-				#else
-					buff[ivl->lg[tt]++] = (interval){pr + pr_thread[t], bkt[sk], bkt[sk + 1] - bkt[sk]};
-					if(t == 0) {
-						nc0 += bkt[sk + 1] - bkt[sk];
-						continue;
-					}
-					for(int i = num_intervals[tt]; i < ivl->lg[tt]; i++) {
-						if(buff[i].priority > pr) break;
-						num_intervals[tt]++;
-						nc0 += buff[i].run;
-					}
-				#endif
+				buff[ivl->lg[tt]++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
+				nc0 += bkt[sk + 1] - bkt[sk];
 			}
 		}
 		nc += nc0;
@@ -6372,533 +4361,13 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 	}
 ret:
 
-	#ifdef INTERVAL_WITH_PRIORITY
-
-	#ifdef PARALLEL_ENUM
-	for(int tt = num_list; tt < (1 << PARALLEL_ENUM); tt++) {
-		ivl->lg[tt] = num_intervals[tt];
-	}
-	#else
-	for(int tt = 1; tt < mu_thread_size; tt++) {
-		ivl->lg[tt] = num_intervals[tt];
-	}
-	#endif
-
-//fprintf(stderr, "lg OK\n");
-//for(int t = 0; t < mu_thread_size; t++) {
-//	fprintf(stderr, "lg[%d] = %d\n", t, ivl->lg[t]);
-//}
-	dist_type max_pr = ivl->list[ivl->lg[0] - 1].priority;
-	#ifdef PARALLEL_ENUM
-	for(int tt = (1 << PARALLEL_ENUM) - 1; tt >= 0; tt--) {
-		interval *buff = ivl->list + tt * ivl->size;
-		int j = ivl->lg[tt] - 1;
-		while(buff[j].priority == max_pr && nc - buff[j].run >= num_candidates) {
-			nc -= buff[j--].run;
-		}
-		ivl->lg[tt] = j + 1;
-	}
-	#else
-	for(int tt = mu_thread_size - 1; tt >= 0; tt--) {
-		interval *buff = ivl->list + tt * ivl->size;
-		int j = ivl->lg[tt] - 1;
-		while(buff[j].priority == max_pr && nc - buff[j].run >= num_candidates) {
-			nc -= buff[j--].run;
-		}
-		ivl->lg[tt] = j + 1;
-	}
-	#endif
-
-	balance_interval_list(ivl);
-
-	#endif
-//	fprintf(stderr, "return: nc = %d\n", nc);
 	return nc;
 }
 #endif
 #endif
 
 #if PARA_ENUM_INF > 0
-#ifndef SELECT_BY_PRIORITY_AFTER_ENUMERATION
-#define NEW_WITHOUT_PS
-#ifndef NEW_WITHOUT_PS
-int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, interval_list *ivl, int num_candidates)
-{
-	int n = PARA_ENUM_INF;
-	int nt = (1 << n); // スレッド数
-	#ifdef _OPENMP
-	omp_set_num_threads(nt);
-	#endif
-	static int first = 1;
-	if(first) {
-		#ifndef WITHOUT_IDX
-		fprintf(stderr, "(a: without ps) filtering_by_sketch_enumeration_c2_n_interval %d-thread WITH_IDX. \n", nt);
-		#else
-		fprintf(stderr, "filtering_by_sketch_enumeration_c2_n_interval %d-thread WITHOUT_IDX. \n", nt);
-		#endif
-		first = 0;
-	}
-
-	sketch_type s;
-	QUE_c2 qu, qu2;
-	int *bd = qs->bd, *bd_idx = qs->idx;
-	int *bkt = bucket->bkt;
-
-	sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-	// このパターンの順序は，おそらく，ほとんど recall に影響しないので，INF 用の grey code 生成ルールを用いて準備する
-	// このパターンに対応するスケッチ（各スレッドで列挙する最初のスケッチ）を持つデータ数の平均を用いて，列挙スケッチ数を見積もる．
-	mu_thread[0] = 0;
-	for(int t = 0; t < nt; t++) {
-		if(t < nt - 1) mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-	}
-
-	int num_enum_data[nt], num_nonempty[nt];		// スレッドが実際に列挙した空でないスケッチ数とデータ数
-	for(int t = 0; t < nt; t++) {
-		num_enum_data[t] = num_nonempty[t] = 0;
-	}
-	unsigned int total_enum_data = 0;						// 求めたデータ数の合計
-	sketch_type mu_common[num_candidates];			// 一回の処理で求めた共通マスクの配列
-
-	// 下位 n ビットは，スレッド毎に割り当てた mu_thread[t] との XOR で求める．
-	// それ以降の PJT_DIM - n ビットのみを変化させた，スケッチを列挙する（下位 n ビットは，質問のまま）
-
-	s = qs->sketch; // 先頭は質問のスケッチ
-	int num_sk = 0; // 列挙したスケッチ数
-	mu_common[num_sk++] = s;
-	int chk_sum = 0;
-	int num_checked = 0; // chk_sum を調べたスケッチ数
-
-	s = s ^ (1 <<  bd_idx[n]); // 先頭の次は、質問のスケッチと距離下限が最小のビットだけが異なるもの
-	mu_common[num_sk++] = s;
-
-	make_empty_que_c2_n(que);
-
-	// enq pattern of 0...10
-	qu.cursor = new_que_e2_n(que);
-	qu.key = bd[bd_idx[n + 1]];
-	que->details[qu.cursor].sk = qs->sketch ^ (1 << bd_idx[n + 1]);
-	que->details[qu.cursor].pt = 1 << 1; // pt = "0...00000010"
-	enq_c2_n(&qu, que);		
-
-	while(deq_c2_n(&qu, que)) {
-
-		s = que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-		mu_common[num_sk++] = s;
-
-		if(num_sk >= num_checked + FACTOR_INF) { // FACTOR_INF 個ごとに chk_sum を求める
-			int sum_part = 0;
-			#pragma omp parallel reduction (+:sum_part)
-			{
-				int t = omp_get_thread_num();
-				for(int j = num_checked; j < num_sk; j++) {
-					sketch_type sk = mu_common[j] ^ mu_thread[t];
-					sum_part += bkt[sk + 1] - bkt[sk];
-				}
-			}
-
-			// num_checked までは，データ数を確認済み（chk_sum）．
-			// num_sk までは，共通マスク（mu_common）作成済み．
-			// num_checked 以降 num_sk までのデータ数は，sum_part
-			if(chk_sum + sum_part >= num_candidates) {
-				break;
-			}
-
-			num_checked = num_sk;
-			chk_sum += sum_part;
-		}
-		switch(que->details[qu.cursor].pt & 15) {
-		case 0: // X0000 -> enq(X0001) and enq(Y10^{m+1}) if X0000 = Y010^m
-		case 8: // X1000 -> enq(X1001) and enq(Y10^{m+1}) if X0000 = Y010^m
-			{
-				int m = lsb_pos(que->details[qu.cursor].pt);
-				if(m > 0 && n + m < PJT_DIM - 1 && !(que->details[qu.cursor].pt & (1 << (m + 1)))) {
-					// Y010^m -> Y10^{m+1}
-					qu2.cursor = new_que_e2_n(que);
-					qu2.key = qu.key + bd[bd_idx[n + m + 1]] - bd[bd_idx[n + m]];
-					que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + m + 1])) ^ (1 << bd_idx[n + m]);
-					que->details[qu2.cursor].pt = que->details[qu.cursor].pt + (1 << m);
-					// Y010^m -> Y010^{m-1}1
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-					enq_c2_n(&qu2, que);
-				} else {
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-				}
-			}
-			break;
-		case 4:  // X0100 -> enq(X0101) and enq(X1000)
-			// X1000
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key + bd[bd_idx[n + 3]] - bd[bd_idx[n + 2]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 3])) ^ (1 << bd_idx[n + 2]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 4;
-			// X0101
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 1:  // X0001 -> enq(X0010)
-		case 5:  // X0101 -> enq(X0110)
-		case 9:  // X1001 -> enq(X1010)
-		case 13: // X1101 -> enq(X1110) (note that X <> 0, because 0...00 and 0...01 is already processed before while loop)
-			qu.key = qu.key + bd[bd_idx[n + 1]] - bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 1])) ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 2:  // X0010 -> enq(X0011) and enq(X0100)
-		case 10: // X1010 -> enq(X1011) and enq(X1100)
-			// X0100 and X1100
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key +  bd[bd_idx[n + 2]] -  bd[bd_idx[n + 1]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 2])) ^ (1 << bd_idx[n + 1]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 2;
-			// X0011 and X1011
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 6:  // X0110 -> enq(X0111)
-		case 12: // X1100 -> enq(X1101)
-		case 14: // X1110 -> enq(10111)
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 3:  // X0011
-		case 7:  // X0111
-		case 11: // X1011
-		case 15: // X1111 -> nothing to do
-			break;
-		}
-	}
-
-	#pragma omp parallel 
-//				for(int t = 0; t < nt; t++)
-	{
-		int t = omp_get_thread_num();	// スレッド番号
-		int ne = num_nonempty[t];		// 各スレッドで求めた空でないスケッチ数
-		int nd = 0;						// 一回の処理で各スレッドで求めたデータ数
-		interval *buff = ivl->list + t * ivl->size;
-		for(int i = 0; i < num_checked; i++) {
-			sketch_type sk = mu_common[i] ^ mu_thread[t];
-			if(bkt[sk + 1] > bkt[sk]) {
-				buff[ne++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-				nd += bkt[sk + 1] - bkt[sk];
-			}
-		}
-		num_nonempty[t] = ne;
-		num_enum_data[t] += nd;
-	}
-	total_enum_data = 0;
-	for(int t = 0; t < nt; t++) {
-		ivl->lg[t] = num_nonempty[t];
-		total_enum_data += num_enum_data[t];
-	}
-
-	while(total_enum_data < num_candidates) {
-		#pragma omp parallel 
-	//				for(int t = 0; t < nt; t++)
-		{
-			int t = omp_get_thread_num();	// スレッド番号
-			int ne = num_nonempty[t];		// 各スレッドで求めた空でないスケッチ数
-			int nd = 0;						// 一回の処理で各スレッドで求めたデータ数
-			interval *buff = ivl->list + t * ivl->size;
-			for(int i = num_checked; i < num_checked + FACTOR_INF2; i++) {
-				sketch_type sk = mu_common[i] ^ mu_thread[t];
-				if(bkt[sk + 1] > bkt[sk]) {
-					buff[ne++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-					nd += bkt[sk + 1] - bkt[sk];
-				}
-			}
-			num_nonempty[t] = ne;
-			num_enum_data[t] += nd;
-		}
-		total_enum_data = 0;
-		for(int t = 0; t < nt; t++) {
-			ivl->lg[t] = num_nonempty[t];
-			total_enum_data += num_enum_data[t];
-		}
-		num_checked += FACTOR_INF2;
-	}
-	return total_enum_data;
-}
-#else
-int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, interval_list *ivl, int num_candidates)
-{
-	int n = PARA_ENUM_INF;
-	int nt = (1 << n); // スレッド数
-	#ifdef _OPENMP
-	omp_set_num_threads(nt);
-	#endif
-	static int first = 1;
-	if(first) {
-		#ifndef WITHOUT_IDX
-		fprintf(stderr, "(new a: without ps) filtering_by_sketch_enumeration_c2_n_interval %d-thread WITH_IDX. \n", nt);
-		#else
-		fprintf(stderr, "filtering_by_sketch_enumeration_c2_n_interval %d-thread WITHOUT_IDX. \n", nt);
-		#endif
-		first = 0;
-	}
-
-	sketch_type s;
-	QUE_c2 qu, qu2;
-	int *bd = qs->bd, *bd_idx = qs->idx;
-	int *bkt = bucket->bkt;
-
-	sketch_type mu_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターン（or 質問スケッチとのXOR）
-	// このパターンの順序は，おそらく，ほとんど recall に影響しないので，INF 用の grey code 生成ルールを用いて準備する
-	// このパターンに対応するスケッチ（各スレッドで列挙する最初のスケッチ）を持つデータ数の平均を用いて，列挙スケッチ数を見積もる．
-	mu_thread[0] = 0;
-	for(int t = 0; t < nt; t++) {
-		if(t < nt - 1) mu_thread[t + 1] = mu_thread[t] ^ (1 << bd_idx[bit_count(t ^ (t + 1)) - 1]);
-	}
-	sketch_type pr_thread[nt]; // スレッドに割り当てられた下位 n-bit のパターンと質問スケッチとのXORの優先度
-	for(int t = 0; t < nt; t++) {
-		pr_thread[t] = priority(mu_thread[t] ^ qs->sketch, qs);
-	}
-	int num_enum_data[nt], num_nonempty[nt];		// スレッドが実際に列挙した空でないスケッチ数とデータ数
-	for(int t = 0; t < nt; t++) {
-		num_enum_data[t] = num_nonempty[t] = 0;
-	}
-//	sketch_type mu_common[num_candidates];			// 一回の処理で求めた共通マスクの配列
-//	dist_type pr_common[num_candidates];
-	static sketch_type *mu_common;			// 一回の処理で求めた共通マスクの配列
-	static int nc0 = 0;
-	static dist_type *pr_common;
-	if(nc0 < num_candidates) {
-		if(nc0 != 0) {
-			FREE(mu_common, sizeof(sketch_type) * nc0);
-			FREE(pr_common, sizeof(dist_type) * nc0);
-		}
-		mu_common = MALLOC(sizeof(sketch_type) * num_candidates);
-		pr_common = MALLOC(sizeof(dist_type) * num_candidates);
-		nc0 = num_candidates;
-	}
-	#define NUM_DIVISION FACTOR_INF2
-	#define LOOP_SIZE FACTOR_INF
-	int num_division = NUM_DIVISION;
-	int loop_size = LOOP_SIZE;
-	#define MAX_NUM_DIVISION 1000
-	if(num_division > MAX_NUM_DIVISION) num_division = MAX_NUM_DIVISION;
-	dist_type pr_div[MAX_NUM_DIVISION] = {0};
-	dist_type pr_max = 0;
-	// 下位 n ビットは，スレッド毎に割り当てた mu_thread[t] との XOR で求める．
-	// それ以降の PJT_DIM - n ビットのみを変化させた，スケッチを列挙する（下位 n ビットは，質問のまま）
-
-	s = qs->sketch; // 先頭は質問のスケッチ
-	int num_sk = 0; // 列挙したスケッチ数
-	pr_common[num_sk] = 0;
-	mu_common[num_sk++] = s;
-	int chk_sum = 0;
-	int num_checked[nt]; // 各スレッドで chk_sum を調べたスケッチ数（0スレッドの最大の優先度以下のものしか調べていない）
-	for(int t = 0; t < nt; num_checked[t++] = 0);
-
-	s = s ^ (1 <<  bd_idx[n]); // 先頭の次は、質問のスケッチと距離下限が最小のビットだけが異なるもの
-	pr_common[num_sk] = bd[bd_idx[n]];
-	mu_common[num_sk++] = s;
-
-	make_empty_que_c2_n(que);
-
-	// enq pattern of 0...10
-	qu.cursor = new_que_e2_n(que);
-	qu.key = bd[bd_idx[n + 1]];
-	que->details[qu.cursor].sk = qs->sketch ^ (1 << bd_idx[n + 1]);
-	que->details[qu.cursor].pt = 1 << 1; // pt = "0...00000010"
-	enq_c2_n(&qu, que);		
-
-	while(deq_c2_n(&qu, que)) {
-
-		s = que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-		pr_common[num_sk] = qu.key;		// 列挙したスケッチの優先度
-		mu_common[num_sk++] = s;
-
-		if(num_sk >= num_checked[0] + loop_size) { // FACTOR_INF 個ごとに chk_sum を求める
-			int sum_part[MAX_NUM_DIVISION + 1] = {0};	
-			// チェックが済んでいないスケッチ（mu_common[j], j = num_checked, ... , num_sk - 1) について，
-			// まとめて列挙するスケッチ数（loop_size, FACTOR_INF）をNUM_DIVISION個の区間に分けて，
-			// そのスケッチのNUM_DIVISION段階の優先度（ただし，スレッド 0 のもの，つまり，固定部がすべて 0 のもの）
-			// について，それぞれのスレッドで，それ以下の優先度のデータ数を求める．
-			// FACTOR_INF個のスケッチ全部に対してデータ数を求めると多くなり過ぎるのを防ぐため．
-			int num_div = 1;
-			pr_div[0] = pr_common[num_checked[0] + (loop_size / num_division) - 1];
-			for(int d = 1; d < NUM_DIVISION; d++) {
-				if(pr_div[num_div - 1] < pr_common[num_checked[0] + (d + 1) * (loop_size / num_division) - 1]) {
-					pr_div[num_div++] = pr_common[num_checked[0] + (d + 1) * (loop_size / num_division) - 1];
-				}
-				// pr_div[d] = 区分 d (0, ... , NUM_DIV - 1) の最後の優先度．
-				// 区分 d のスケッチの個数は，(FACTOR_INF / NUM_DIVISION)
-				// チェックが済んでいないスケッチは，（mu_common[j], j = num_checked, ... , num_sk - 1) 
-				// 区分 0 のスケッチは，（mu_common[j], j = num_checked, ... , num_checked + (FACTOR_INF / NUM_DIVISION) - 1) にあるので，
-				// その最後のものは，mu_common[num_checked + (FACTOR_INF / NUM_DIVISION) - 1] にあり，
-				// それ以降の区分のものの最後は，そこから (FACTOR_INF / NUM_DIVISION) 先にある．
-			}
-
-			#pragma omp parallel
-//			for(int t = 0; t < nt; t++)
-			{
-				int t = omp_get_thread_num();
-				int d = 0;
-				int nd = 0;
-				int j;
-				for(j = num_checked[t]; j < num_sk; j++) {
-					sketch_type sk = mu_common[j] ^ mu_thread[t];
-					if(pr_thread[t] + pr_common[j] > pr_div[d]) { // pr_div[d] を（初めて）超えた
-						if(d < num_div - 1) {
-							#pragma omp atomic
-							sum_part[d] += nd;	// それまでに求めた nd は，区分 d の優先度 pr_div[d] 以下（優先度としては上位）のデータ数
-							d++;				// 区分を進める．
-						} else { // pr_div[num_div - 1] は，スレッド 0 の最大の優先度．これを超えるものは，ここでは，処理しない．
-							num_checked[t] = j; // j 番目は，未処理なので，チェック済みのスケッチ数は j．
-							break;
-						}
-					}
-					nd += bkt[sk + 1] - bkt[sk];
-				}
-				while(d < num_div) {
-					#pragma omp atomic
-					sum_part[d] += nd; // 最後の区分の
-					d++;
-				}
-				if(j == num_sk) {
-					num_checked[t] = num_sk;
-				}
-			}
-
-			if(chk_sum + sum_part[num_div - 1] >= num_candidates) {
-				for(int d = 0; d < num_div; d++) {
-					if(chk_sum + sum_part[d] >= num_candidates) {
-						pr_max = pr_div[d];
-						break;
-					}
-				}
-				break;
-			}
-
-			chk_sum += sum_part[num_div - 1];
-
-			int num_rest = num_candidates - chk_sum;	// あとどれくらいデータが不足しているか
-			double ave = chk_sum / num_sk;					// これまでに列挙したスケッチにより得られたデータ数の平均
-			loop_size = num_rest / ave;
-			if(loop_size < NUM_DIVISION) loop_size = NUM_DIVISION;
-//			fprintf(stderr, "q = %d, num_rest = %d, ave = %.2lf, loop_size = %d\n", qs->query.query_num, num_rest, ave, loop_size); getchar();
-		}
-		switch(que->details[qu.cursor].pt & 15) {
-		case 0: // X0000 -> enq(X0001) and enq(Y10^{m+1}) if X0000 = Y010^m
-		case 8: // X1000 -> enq(X1001) and enq(Y10^{m+1}) if X0000 = Y010^m
-			{
-				int m = lsb_pos(que->details[qu.cursor].pt);
-				if(m > 0 && n + m < PJT_DIM - 1 && !(que->details[qu.cursor].pt & (1 << (m + 1)))) {
-					// Y010^m -> Y10^{m+1}
-					qu2.cursor = new_que_e2_n(que);
-					qu2.key = qu.key + bd[bd_idx[n + m + 1]] - bd[bd_idx[n + m]];
-					que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + m + 1])) ^ (1 << bd_idx[n + m]);
-					que->details[qu2.cursor].pt = que->details[qu.cursor].pt + (1 << m);
-					// Y010^m -> Y010^{m-1}1
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-					enq_c2_n(&qu2, que);
-				} else {
-					qu.key = qu.key + bd[bd_idx[n + 0]];
-					que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-					que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-					enq_c2_n(&qu, que);
-				}
-			}
-			break;
-		case 4:  // X0100 -> enq(X0101) and enq(X1000)
-			// X1000
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key + bd[bd_idx[n + 3]] - bd[bd_idx[n + 2]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 3])) ^ (1 << bd_idx[n + 2]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 4;
-			// X0101
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 1:  // X0001 -> enq(X0010)
-		case 5:  // X0101 -> enq(X0110)
-		case 9:  // X1001 -> enq(X1010)
-		case 13: // X1101 -> enq(X1110) (note that X <> 0, because 0...00 and 0...01 is already processed before while loop)
-			qu.key = qu.key + bd[bd_idx[n + 1]] - bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 1])) ^ (1 << bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 2:  // X0010 -> enq(X0011) and enq(X0100)
-		case 10: // X1010 -> enq(X1011) and enq(X1100)
-			// X0100 and X1100
-			qu2.cursor = new_que_e2_n(que);
-			qu2.key = qu.key +  bd[bd_idx[n + 2]] -  bd[bd_idx[n + 1]];
-			que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[n + 2])) ^ (1 << bd_idx[n + 1]);
-			que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 2;
-			// X0011 and X1011
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			enq_c2_n(&qu2, que);
-			break;
-		case 6:  // X0110 -> enq(X0111)
-		case 12: // X1100 -> enq(X1101)
-		case 14: // X1110 -> enq(10111)
-			qu.key = qu.key + bd[bd_idx[n + 0]];
-			que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[n + 0]);
-			que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-			enq_c2_n(&qu, que);
-			break;
-		case 3:  // X0011
-		case 7:  // X0111
-		case 11: // X1011
-		case 15: // X1111 -> nothing to do
-			break;
-		}
-	}
-
-	#pragma omp parallel 
-	{
-		int t = omp_get_thread_num();	// スレッド番号
-		int ne = num_nonempty[t];		// 各スレッドで求めた空でないスケッチ数
-		int nd = 0;						// 一回の処理で各スレッドで求めたデータ数
-		interval *buff = ivl->list + t * ivl->size;
-		for(int i = 0; i < num_checked[0]; i++) {
-			sketch_type sk = mu_common[i] ^ mu_thread[t];
-			dist_type p = pr_common[i] + pr_thread[t];
-			if(p > pr_max) break;
-			if(bkt[sk + 1] > bkt[sk]) {
-				buff[ne++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-				nd += bkt[sk + 1] - bkt[sk];
-			}
-		}
-		num_nonempty[t] = ne;
-		num_enum_data[t] += nd;
-	}
-
-	int total_enum_data = 0;						// 求めたデータ数の合計
-	for(int t = 0; t < nt; t++) {
-		ivl->lg[t] = num_nonempty[t];
-		total_enum_data += num_enum_data[t];
-	}
-
-	return total_enum_data;
-}
-#endif
-#elif defined(USE_MU_COMMON)
+#if defined(USE_MU_COMMON)
 // with post-selection (using mu_common)
 int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, interval_list *ivl, int num_candidates)
 {
@@ -7038,11 +4507,7 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 					sketch_type sk = mu_common[j] ^ mu_thread[t];
 					if(bkt[sk + 1] > bkt[sk]) {
 						dist_type pr = pr_common[j] + pr_thread[t];
-						#ifdef INTERVAL_WITH_PRIORITY
-						buff[ne++] = (interval){pr, bkt[sk], bkt[sk + 1] - bkt[sk]};
-						#else
 						buff[ne++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-						#endif
 						nd += bkt[sk + 1] - bkt[sk];
 						sum_part += bkt[sk + 1] - bkt[sk];
 						nd_p[pr] += bkt[sk + 1] - bkt[sk];
@@ -7062,11 +4527,7 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 						sketch_type sk = mu_common[j] ^ mu_thread[tn];
 						if(bkt[sk + 1] > bkt[sk]) {
 							dist_type pr = pr_common[j] + pr_thread[tn];
-							#ifdef INTERVAL_WITH_PRIORITY
-							buff[ne++] = (interval){pr, bkt[sk], bkt[sk + 1] - bkt[sk]};
-							#else
 							buff[ne++] = (interval){bkt[sk], bkt[sk + 1] - bkt[sk]};
-							#endif
 							nd += bkt[sk + 1] - bkt[sk];
 							sum_part += bkt[sk + 1] - bkt[sk];
 							nd_p[pr] += bkt[sk + 1] - bkt[sk];
@@ -7210,7 +4671,7 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 	return total_enum_data[final_priority];
 }
 #else
-// with post-selection (using mu_common)
+// with post-selection (without using mu_common)
 int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que_pool[], interval_list *ivl, int num_candidates)
 {
 	int n = PARA_ENUM_INF;
@@ -7503,8 +4964,6 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 	return total_enum_data[final_priority];
 }
 #endif
-#endif
-#endif
 
 // score_1 (D~1) 順に列挙して，データ数が num_candidates を超える最初のスケッチの優先順位（score_1, D~1）を求める．
 // 実際のデータ番号は求めない．
@@ -7731,73 +5190,6 @@ int filtering_by_sketch_enumeration_c2_n_sketch(struct_query_sketch *qs, struct_
 #ifdef NEW_INF
 #if PARA_ENUM_INF > 0
 #else
-	#ifndef SELECT_BY_PRIORITY_AFTER_ENUMERATION
-	// D~inf順の列挙を用いる．single-thread
-	int filtering_by_sketch_enumeration_inf(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
-	{
-		int *bd_idx = qs->idx;
-		int *bkt = bucket->bkt;
-
-		// 全体の D~inf 順のスケッチの列挙を a[0], a[1], ... とする．
-		// a[0] = qs->sketch （質問のスケッチ，D~inf = 0）
-		// a[i + 1] = a[i] ^ (1 << bd_idx[bit_count(i ^ (i + 1)) - 1])
-
-		sketch_type s = qs->sketch; // 列挙するスケッチ
-		int nc = 0;					// 求めた候補数
-		for(int i = 0; nc < num_candidates; i++) { // このループでは，D~inf順にスケッチを列挙して，空でなければ，データ番号をdata_numに格納する．
-			if(bkt[s + 1] > bkt[s]) { // s が空でない．
-				for(int j = bkt[s]; j < bkt[s + 1] && nc < num_candidates; j++) {
-					#ifdef DATA_NUM_IN_SKETCH_ORDER
-					data_num[nc++] = j;
-					#else
-					data_num[nc++] = bucket->idx[j];
-					#endif
-				}
-			}
-			s = s ^ (1 << bd_idx[bit_count(i ^ (i + 1)) - 1]); // 次のスケッチ
-		}
-
-		return nc;
-	}
-
-	// D~inf順の列挙を用いる．single-thread using interval
-	int filtering_by_sketch_enumeration_inf_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates)
-	{
-		int *bd_idx = qs->idx;
-		int *bkt = bucket->bkt;
-		int nt = ivl->nt;
-		int num_nonempty = 0;		// 列挙した空でないスケッチ数（＝求めたinterval数）
-		interval *buff = ivl->list;
-
-		static int first = 1;
-		if(first) {
-			#ifndef WITHOUT_IDX
-			fprintf(stderr, "enum_inf_interval single-thread WITH_IDX. (a)\n");
-			#else
-			fprintf(stderr, "enum_inf_interval single-thread WITHOUT_IDX. (b)\n");
-			#endif
-			first = 0;
-		}
-
-		// 全体の D~inf 順のスケッチの列挙を a[0], a[1], ... とする．
-		// a[0] = qs->sketch （質問のスケッチ，D~inf = 0）
-		// a[i + 1] = a[i] ^ (1 << bd_idx[bit_count(i ^ (i + 1)) - 1])
-
-		sketch_type s = qs->sketch; // 列挙するスケッチ
-		int nc = 0;					// 求めた候補数
-
-		for(int i = 0; nc < num_candidates; i++) { // このループでは，D~inf順にスケッチを列挙して，空でなければ，その区間（interval)を格納する．
-			if(bkt[s + 1] > bkt[s]) { // s が空でない．
-				buff[num_nonempty++] = (interval){bkt[s], bkt[s + 1] - 1};
-				nc += (bkt[s + 1] - bkt[s]);
-			}
-			s = s ^ (1 << bd_idx[bit_count(i ^ (i + 1)) - 1]); // 次のスケッチ
-		}
-		ivl->lg[0] = num_nonempty;
-
-		return nc;
-	}
-	#else
 	// D~inf順の列挙を用いる．single-thread after-selection
 	int filtering_by_sketch_enumeration_inf(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
 	{
@@ -7835,13 +5227,7 @@ int filtering_by_sketch_enumeration_c2_n_sketch(struct_query_sketch *qs, struct_
 		int *bd_idx = qs->idx;
 		int *bkt = bucket->bkt;
 
-		#ifdef INTERVAL_WITH_PRIORITY
-			// このときは，interval_list をバッファとして用いることができる．
-			interval *buff = ivl->list;
-//			int buff_size = ivl->size;
-		#else
-			#error "filtering_by_sketch_enumeration_inf_interval post-selection should be used with INTERVAL_WITH_PRIORITY"
-		#endif
+		#error "filtering_by_sketch_enumeration_inf_interval post-selection should be used with INTERVAL_WITH_PRIORITY"
 
 		static int first = 1;
 		if(first) {
@@ -7874,7 +5260,6 @@ int filtering_by_sketch_enumeration_c2_n_sketch(struct_query_sketch *qs, struct_
 		ivl->lg[0] = quick_select_sum_k_interval(buff, 0, num_nonempty - 1, num_candidates);
 		return num_candidates;
 	}
-	#endif
 #endif
 #else // !defined(NEW_INF)
 #if PARA_ENUM_INF > 0 
@@ -7887,7 +5272,6 @@ int filtering_by_sketch_enumeration_inf(struct_query_sketch *qs, struct_bucket *
 {
 	int n = PARA_ENUM_INF;
 	int nt = (1 << n); // スレッド数
-//	fprintf(stderr, "enum_inf %d-thread\n", nt); exit(0);
 	#ifdef _OPENMP
 	omp_set_num_threads(nt);
 	#endif
@@ -7970,7 +5354,6 @@ int filtering_by_sketch_enumeration_inf_data(struct_query_sketch *qs, struct_buc
 {
 	int n = PARA_ENUM_INF;
 	int nt = (1 << n); // スレッド数
-//	fprintf(stderr, "enum_inf %d-thread\n", nt); exit(0);
 	#ifdef _OPENMP
 	omp_set_num_threads(nt);
 	#endif
@@ -7995,7 +5378,6 @@ int filtering_by_sketch_enumeration_inf_data(struct_query_sketch *qs, struct_buc
 	bit <<= qs->idx[n - 1]; // 分割数に応じて固定で決定される操作ビット
 
 	sketch_type s_0[nt]; // 各スレッドが列挙するスケッチの先頭
-//	int num_sk[nt]; // 各スレッドが求めたスケッチの個数（NO_EMPTY_CHECK => 空も含む，ELSE => 空でないもののみ）
 	int *bd_idx = qs->idx;
 	int *bkt = bucket->bkt;
 
@@ -8058,10 +5440,8 @@ int filtering_by_sketch_enumeration_inf_data(struct_query_sketch *qs, struct_buc
 // スレッド数 2 ^ n (= 1, 2, 4, 8, 16, 32) の並列処理を行う．
 int filtering_by_sketch_enumeration_inf_data_select(struct_query_sketch *qs, struct_bucket *bucket, int *data_num, int num_candidates)
 {
-//	fprintf(stderr, "enum_inf multi-thread-select. FACTOR_INF = %d, PARA_ENUM_INF = %d\n", FACTOR_INF, PARA_ENUM_INF); exit(0);
 	int n = PARA_ENUM_INF;
 	int nt = (1 << n); // スレッド数
-//	fprintf(stderr, "enum_inf %d-thread\n", nt); exit(0);
 	#ifdef _OPENMP
 	omp_set_num_threads(nt);
 	#endif
@@ -8084,7 +5464,6 @@ int filtering_by_sketch_enumeration_inf_data_select(struct_query_sketch *qs, str
 	bit <<= qs->idx[n - 1]; // 分割数に応じて固定で決定される操作ビット
 
 	sketch_type s_0[nt]; // 各スレッドが列挙するスケッチの先頭
-//	int num_sk[nt]; // 各スレッドが求めたスケッチの個数（NO_EMPTY_CHECK => 空も含む，ELSE => 空でないもののみ）
 	int *bd_idx = qs->idx;
 	int *bkt = bucket->bkt;
 
@@ -8131,7 +5510,6 @@ int filtering_by_sketch_enumeration_inf_data_select(struct_query_sketch *qs, str
 			s = s ^ bit ^ (1 << bd_idx[bit_count((r * nt + nt - 1) ^ (r * nt + nt)) - 1]);
 			r++;
 		}
-//		fprintf(stderr, "enum OK: t = %d\n", t);
 		quick_select_k_answer(b, 0, num_sketch_thread_inf - 1, num_sketch_thread);
 		num = 0; // 出力したデータ番号の個数
 		for(int i = 0; num < num_data_thread; i++) {
@@ -8155,7 +5533,6 @@ int filtering_by_sketch_enumeration_inf_data_select(struct_query_sketch *qs, str
 // スレッド数 2 ^ n (= 1, 2, 4, 8, 16, 32) の並列処理を行う．
 int filtering_by_sketch_enumeration_inf_only(struct_query_sketch *qs, struct_bucket *bucket, int *data_num, int num_candidates)
 {
-//	fprintf(stderr, "enum_inf multi-thread-select. FACTOR_INF = %d, PARA_ENUM_INF = %d\n", FACTOR_INF, PARA_ENUM_INF); exit(0);
 	int n = PARA_ENUM_INF;
 	int nt = (1 << n); // スレッド数
 	#ifdef _OPENMP
@@ -8216,10 +5593,8 @@ int filtering_by_sketch_enumeration_inf_only(struct_query_sketch *qs, struct_buc
 
 int filtering_by_sketch_enumeration_inf_only_2(struct_query_sketch *qs, struct_bucket *bucket, int *data_num_thread[], int num_data_thread[], int num_candidates)
 {
-//	fprintf(stderr, "enum_inf multi-thread-select. FACTOR_INF = %d, PARA_ENUM_INF = %d\n", FACTOR_INF, PARA_ENUM_INF); exit(0);
 	int n = PARA_ENUM_INF;
 	int nt = (1 << n); // スレッド数
-//	fprintf(stderr, "enum_inf %d-thread\n", nt); exit(0);
 	#ifdef _OPENMP
 	omp_set_num_threads(nt);
 	#endif
@@ -8304,14 +5679,11 @@ int filtering_by_sketch_enumeration_inf_only_2(struct_query_sketch *qs, struct_b
 
 int filtering_by_sketch_enumeration_inf_only_3(struct_query_sketch *qs, struct_bucket *bucket, int *data_num_thread[], int num_data_thread[], int num_candidates)
 {
-//	fprintf(stderr, "enum_inf multi-thread-select. filtering_by_sketch_enumeration_inf_only_3. FACTOR_INF = %d, PARA_ENUM_INF = %d\n", FACTOR_INF, PARA_ENUM_INF); exit(0);
 	int n = PARA_ENUM_INF;
 	int nt = (1 << n); // スレッド数
-//	fprintf(stderr, "enum_inf %d-thread\n", nt); exit(0);
 	#ifdef _OPENMP
 	omp_set_num_threads(nt);
 	#endif
-//	double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
 	double ave_num = (double)bucket->num_data / (1L << PJT_DIM); // 空も含むすべてのバケットの平均要素数
 	int num_sketch_thread = num_candidates / ave_num / nt; // 各スレッドで求めるスケッチの個数（すべてのスレッドで同じ）
 	int nc_thread = num_candidates / nt; // 各スレッドで求めるデータの個数（すべてのスレッドで同じ）
@@ -8327,14 +5699,12 @@ int filtering_by_sketch_enumeration_inf_only_3(struct_query_sketch *qs, struct_b
 	bit <<= qs->idx[n - 1]; // 分割数に応じて固定で決定される操作ビット
 
 	sketch_type s_0[nt]; // 各スレッドが列挙するスケッチの先頭
-//	int num_sk[nt]; // 各スレッドが求めたスケッチの個数（NO_EMPTY_CHECK => 空も含む，ELSE => 空でないもののみ）
 	int *bd_idx = qs->idx;
 	int *bkt = bucket->bkt;
 
 	s_0[0] = qs->sketch;
 	for(int i = 0; i < nt - 1; i++) {
 		s_0[i + 1] = s_0[i] ^ (1 << bd_idx[bit_count(i ^ (i + 1)) - 1]);
-//		s_0[i + 1] = s_0[i] ^ (1 << bd_idx[count_bits(i ^ (i + 1)) - 1]);
 	}
 
 	int t; // スレッド番号
@@ -8367,7 +5737,6 @@ int filtering_by_sketch_enumeration_inf_only_3(struct_query_sketch *qs, struct_b
 			b[r_t++] = s;
 			// 次を列挙する．
 			s = s ^ bit ^ (1 << bd_idx[bit_count((r * nt + nt - 1) ^ (r * nt + nt)) - 1]);
-//			s = s ^ bit ^ (1 << bd_idx[count_bits((r * nt + nt - 1) ^ (r * nt + nt)) - 1]);
 			r++;
 		}
 
@@ -8380,39 +5749,22 @@ int filtering_by_sketch_enumeration_inf_only_3(struct_query_sketch *qs, struct_b
 			}
 		}
 		num_data_thread[t] = num;
-//		fprintf(stderr, "num_sketch_thread = %d, output = %d\n", num_sketch_thread, ii);
 	}
 
 	num = 0;
 	for(t = 0; t < nt; t++) {
 		num += num_data_thread[t];
 	}
-/*
-	if(qs->query.query_num == 0) {
-		for(t = 0; t < nt; t++) {
-			for(int k = 0; k < num_sketch_thread; k++) {
-				printf("(only_3), q = 0, %d, t, %d, k, %d, sketch, %u\n", qs->query.query_num, t, k, buff[t][k]);
-				for(int j = bkt[buff[t][k]]; j < bkt[buff[t][k] + 1]; j++) {
-					printf("(only_3), j = %d, idx = %d\n", j, bucket->idx[j]);
-				}
-			}
-		}
-	}
-*/
-
 	return num;
 }
 
 int filtering_by_sketch_enumeration_inf_only_4(struct_query_sketch *qs, struct_bucket *bucket, int *data_num_thread[], int num_data_thread[], int num_candidates)
 {
-//	fprintf(stderr, "enum_inf multi-thread-select. FACTOR_INF = %d, PARA_ENUM_INF = %d\n", FACTOR_INF, PARA_ENUM_INF); exit(0);
 	int n = PARA_ENUM_INF;
 	int nt = (1 << n); // スレッド数
-//	fprintf(stderr, "enum_inf %d-thread\n", nt); exit(0);
 	#ifdef _OPENMP
 	omp_set_num_threads(nt);
 	#endif
-//	double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
 	double ave_num = (double)bucket->num_data / (1L << PJT_DIM); // 空も含むすべてのバケットの平均要素数
 	int num_sketch_thread = num_candidates / ave_num / nt; // 各スレッドで求めるスケッチの個数（すべてのスレッドで同じ）
 	int nc_thread = num_candidates / nt; // 各スレッドで求めるデータの個数（すべてのスレッドで同じ）
@@ -8426,7 +5778,6 @@ int filtering_by_sketch_enumeration_inf_only_4(struct_query_sketch *qs, struct_b
 	bit <<= qs->idx[n - 1]; // 分割数に応じて固定で決定される操作ビット
 
 	sketch_type s_0[nt]; // 各スレッドが列挙するスケッチの先頭
-//	int num_sk[nt]; // 各スレッドが求めたスケッチの個数（NO_EMPTY_CHECK => 空も含む，ELSE => 空でないもののみ）
 	int *bd_idx = qs->idx;
 	int *bkt = bucket->bkt;
 
@@ -8440,7 +5791,6 @@ int filtering_by_sketch_enumeration_inf_only_4(struct_query_sketch *qs, struct_b
 	sketch_type s; // 列挙の先頭
 	int r; // 列挙したスケッチの番号（先頭は0）
 	int r_t; // スレッドで列挙したスケッチの個数
-//	int rnt;
 	int num; // 出力したデータ番号の個数
 
 	#ifdef _OPENMP
@@ -8486,7 +5836,6 @@ int filtering_by_sketch_enumeration_inf_only_4(struct_query_sketch *qs, struct_b
 			}
 		}
 		num_data_thread[t] = num;
-//		fprintf(stderr, "num_sketch_thread = %d, output = %d\n", num_sketch_thread, ii);
 	}
 
 	num = 0;
@@ -8499,7 +5848,6 @@ int filtering_by_sketch_enumeration_inf_only_4(struct_query_sketch *qs, struct_b
 
 int filtering_by_sketch_enumeration_inf_only_sketch(struct_query_sketch *qs, struct_bucket *bucket, sketch_type sketch[], int num_candidates)
 {
-//	fprintf(stderr, "enum_inf multi-thread-select. filtering_by_sketch_enumeration_inf_only_sketch. FACTOR_INF = %d, PARA_ENUM_INF = %d\n", FACTOR_INF, PARA_ENUM_INF); exit(0);
 	int n = PARA_ENUM_INF;
 	int nt = (1 << n); // スレッド数
 	#ifdef _OPENMP
@@ -8519,7 +5867,6 @@ int filtering_by_sketch_enumeration_inf_only_sketch(struct_query_sketch *qs, str
 	bit <<= qs->idx[n - 1]; // 分割数に応じて固定で決定される操作ビット
 
 	sketch_type s_0[nt]; // 各スレッドが列挙するスケッチの先頭
-//	int num_sk[nt]; // 各スレッドが求めたスケッチの個数（NO_EMPTY_CHECK => 空も含む，ELSE => 空でないもののみ）
 	int *bd_idx = qs->idx;
 
 	s_0[0] = qs->sketch;
@@ -8551,22 +5898,12 @@ int filtering_by_sketch_enumeration_inf_only_sketch(struct_query_sketch *qs, str
 		#pragma omp for schedule(static, 1)
 		#endif
 		for(int i = 0; i < num_sketch; i++) { // このループでは，D~inf順にスケッチを1個求めて，bufferに入れる．
-//			sketch[r_t++ + t * num_sketch_thread] = s;
 			b[r_t++] = s;
 			// 次を列挙する．
 			s = s ^ bit ^ (1 << bd_idx[bit_count((r * nt + nt - 1) ^ (r * nt + nt)) - 1]);
-//			s = s ^ bit ^ (1 << bd_idx[bit_count((r - 1) ^ (r)) - 1 + n]);
 			r++;
 		}
 	}
-
-/*
-	if(qs->query.query_num == 0) {
-		for(int k = 0; k < num_sketch; k++) {
-			printf("(only_sketch) q, %d, k, %d, sketch, %u\n", qs->query.query_num, k, sketch[k]);
-		}
-	}
-*/	
 	return num_sketch;
 }
 
@@ -8576,10 +5913,8 @@ int filtering_by_sketch_enumeration_inf_only_sketch(struct_query_sketch *qs, str
 // スレッド数 2 ^ n (= 1, 2, 4, 8, 16, 32) の並列処理を行う．
 int filtering_by_sketch_enumeration_inf_data_select_once(struct_query_sketch *qs, struct_bucket *bucket, int *data_num, int num_candidates)
 {
-//	fprintf(stderr, "enum_inf multi-thread-select-once. FACTOR_INF = %d, PARA_ENUM_INF = %d\n", FACTOR_INF, PARA_ENUM_INF); exit(0);
 	int n = PARA_ENUM_INF;
 	int nt = (1 << n); // スレッド数
-//	fprintf(stderr, "enum_inf %d-thread\n", nt); exit(0);
 	#ifdef _OPENMP
 	omp_set_num_threads(nt);
 	#endif
@@ -8599,7 +5934,6 @@ int filtering_by_sketch_enumeration_inf_data_select_once(struct_query_sketch *qs
 	bit <<= qs->idx[n - 1]; // 分割数に応じて固定で決定される操作ビット
 
 	sketch_type s_0[nt]; // 各スレッドが列挙するスケッチの先頭
-//	int num_sk[nt]; // 各スレッドが求めたスケッチの個数（NO_EMPTY_CHECK => 空も含む，ELSE => 空でないもののみ）
 	int *bd_idx = qs->idx;
 	int *bkt = bucket->bkt;
 
@@ -8775,7 +6109,6 @@ int filtering_by_sketch_enumeration_inf_data(struct_query_sketch *qs, struct_buc
 // D~inf順の列挙を用いる．シングルスレッド版(data_numのリストを返す)(quick_select_k)
 int filtering_by_sketch_enumeration_inf_data_select(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
 {
-//	fprintf(stderr, "enum_inf single-thread-select. FACTOR_INF = %d, PARA_ENUM_INF = %d\n", FACTOR_INF, PARA_ENUM_INF); exit(0);
 	double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
 	int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数
 	static answer_type *buff = NULL;
@@ -8823,7 +6156,6 @@ int filtering_by_sketch_enumeration_inf_data_select(struct_query_sketch *qs, str
 // D~inf順の列挙を用いる．D~1での選択は行わないシングルスレッド版(data_numのリストを返す)
 int filtering_by_sketch_enumeration_inf_only(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates)
 {
-//	fprintf(stderr, "enum_inf single-thread-select. FACTOR_INF = %d, PARA_ENUM_INF = %d\n", FACTOR_INF, PARA_ENUM_INF); exit(0);
 	sketch_type s; // 列挙するスケッチ
 	int *bd_idx = qs->idx;
 	int *bkt = bucket->bkt;
@@ -8840,7 +6172,6 @@ int filtering_by_sketch_enumeration_inf_only(struct_query_sketch *qs, struct_buc
 		int num_data_sketch = bkt[s + 1] - bkt[s];
 		while(num_data_sketch == 0) {
 			s = s ^ (1 << bd_idx[bit_count(r ^ (r + 1)) - 1]);
-//			s = s ^ (1 << bd_idx[count_bits(r ^ (r + 1)) - 1]);
 			r++;
 			num_data_sketch = bkt[s + 1] - bkt[s];
 		}
@@ -8854,43 +6185,8 @@ int filtering_by_sketch_enumeration_inf_only(struct_query_sketch *qs, struct_buc
 			#endif
 		}
 		s = s ^ (1 << bd_idx[bit_count(r ^ (r + 1)) - 1]); // つぎを列挙
-//		s = s ^ (1 << bd_idx[count_bits(r ^ (r + 1)) - 1]); // つぎを列挙
 		r++;
 	}
-/*
-	double ave_num = (double)bucket->num_data / bucket->num_nonempty_buckets; // 空でないバケットの平均要素数
-	int num_sketch = num_candidates / ave_num; // 求めるスケッチの個数
-	sketch_type sk[num_sketch];
-	int num = 0;
-	while(num_data < num_candidates && num < num_sketch) { // このループでは，D~inf順に空でないスケッチを求めて，sk に格納する．
-		// s が空ならば，空でないものが見つかるまでスケッチを列挙する．
-		int num_data_sketch = bkt[s + 1] - bkt[s];
-		while(num_data_sketch == 0) {
-			s = s ^ (1 << bd_idx[bit_count(r ^ (r + 1)) - 1]);
-			r++;
-			num_data_sketch = bkt[s + 1] - bkt[s];
-		}
-		num_data += num_data_sketch;
-		// 空でないスケッチが見つかったので，一旦スケッチを配列に格納する．
-		sk[num++] = s;
-		// つぎを列挙
-		s = s ^ (1 << bd_idx[bit_count(r ^ (r + 1)) - 1]); // つぎを列挙
-		r++;
-	}
-	qsort(sk, num, sizeof(sketch_type), comp_uint);
-//	printf("num = %d, num_skeytch = %d\n", num, num_sketch);
-	num_data = 0;
-	for(int i = 0; i < num; i++) {
-		int num_data_sketch = bkt[sk[i] + 1] - bkt[sk[i]];
-		int m = num_data_sketch < (num_candidates - num_data) ? num_data_sketch : num_candidates - num_data;
-		for(int j = 0; j < m; j++) {
-			data_num[num_data++] = bkt[sk[i]] + j;
-		}
-	}
-*/
-
-//	printf("num_data = %d, num_canididates = %d\n", num_data, num_candidates); getchar();
-
 	return num_data;
 }
 
@@ -9259,7 +6555,6 @@ void check_sketch_enumeration_hamming(struct_query_sketch *qs, struct_bucket *bu
 #define TRIAL 5
 #endif
 
-#ifndef EXPANDED_SKETCH
 // スケッチの配列を相対的にソートする．idxを入れ替える．
 int find_pivot_for_sketch(int idx[], sketch_type sk[], int i, int j)
 {
@@ -9306,70 +6601,6 @@ void quick_sort_for_sketch(int idx[], sketch_type sk[], int i, int j)
 		quick_sort_for_sketch(idx, sk, k, j);
 	}
 }
-#else
-
-//static int comp_sketch(sketch_type a, sketch_type b)
-//{
-//	for(int j = 0; j < SKETCH_SIZE; j++) {
-//		if(a[j] < b[j])
-//			return -1;
-//		else if(a[j] == b[j])
-//			continue;
-//		else
-//			return 1;
-//	}
-//	return 0;
-//}
-
-// スケッチの配列を相対的にソートする．idxを入れ替える．
-int find_pivot_for_sketch(int idx[], sketch_type sk[], int i, int j)
-{
-	int k, cmp;
-
-	for(int t = 0; t < TRIAL; t++) {
-		k = random() % (j - i + 1) + i;
-		if((cmp = comp_sketch(sk[idx[i]], sk[idx[k]])) != 0) {
-			return (cmp > 0 ? i : k);
-		}
-	}
-	for(k = i + 1; k <= j; k++) {
-		if((cmp = comp_sketch(sk[idx[i]], sk[idx[k]])) != 0) {
-			return (cmp > 0 ? i : k);
-		}
-	}
-	return -1;
-}
-
-int partition_by_pivot_for_sketch(int idx[], sketch_type sk[], int i, int j, sketch_type piv)
-{
-	int left, right;
-	int temp;
-	left = i;   right = j;
-	do {
-		while(comp_sketch(sk[idx[left]], piv) < 0) left++;
-		while(comp_sketch(sk[idx[right]], piv) >= 0) right--;
-		if (left < right) { 
-			temp = idx[left];
-			idx[left] = idx[right];
-			idx[right] = temp;
-		}
-	} while(left <= right);
-	return left;
-}
-
-void quick_sort_for_sketch(int idx[], sketch_type sk[], int i, int j)
-{
-	int pivotindex, k;
-	pivotindex = find_pivot_for_sketch(idx, sk, i, j);
-	if (pivotindex >= 0) {
-		k = partition_by_pivot_for_sketch(idx, sk, i, j, sk[idx[pivotindex]]);
-		quick_sort_for_sketch(idx, sk, i, k - 1);
-		quick_sort_for_sketch(idx, sk, k, j);
-	}
-}
-#endif
-
-// #define DEBUG_SQRT_FTR
 
 // 同じ点との距離を繰り返し計算するときに点データをコピーしておくための配列．
 static int point_a[FTR_DIM];
@@ -10230,601 +7461,6 @@ int quick_select_sum_k_sketch_with_priority_num(sketch_with_priority_num buff[],
 	return j;
 }
 
-#ifdef INTERVAL_WITH_PRIORITY
-// interval の配列を優先度でソートしたり，優先度が上位のものでデータ数の合計が k 以上になる最小個数のスケッチを選択する．
-void quick_sort_interval(interval buff[], int i, int j)
-{
-	int pivotindex, k;
-	pivotindex = find_pivot_interval(buff, i, j);
-	if (pivotindex >= 0) {
-		k = partition_by_pivot_interval_no_sum(buff, i, j, buff[pivotindex].priority);
-		quick_sort_interval(buff, i, k - 1);
-		quick_sort_interval(buff, k, j);
-	}
-}
-
-int find_pivot_interval(interval buff[], int i, int j)
-{
-// 初めに 5 回だけピボット候補をランダムに選ぶ．
-// i 番目のデータ buff[i].priority と k（ただし，k = i + 1, ... , j）番目のデータ buff[k].priority を比較し，
-// すべて等しいときには -1 を返し, 
-// そうでないときには, buff[i].priority と異なる buff[k].priority で最初に 
-// 現れたもののうちで, 大きい方の位置(i または k) を返す. 
-	int k, t;
-
-	/*
-	if(j + 1 - i >= 3) {
-		dist_type a = buff[i].priority, b = buff[(i + j / 2)].priority, c = buff[j].priority;
-		if(((a < b) && (b < c)) || ((c < b) && (b < a))) {
-			return (i + j) / 2;
-		} else if(((a < c) && (c < b)) || ((b < c) && (c < a))) {
-			return j;
-		} else if(((b < a) && (a < c)) || ((c < a) && (b < b))) {
-			return i;
-		}
-	}
-	*/
-	for(t = 0; t < 3; t++) {
-		k = random() % (j - i + 1) + i;
-		if(buff[i].priority != buff[k].priority) {
-			return (buff[i].priority > buff[k].priority ? i : k);
-		}
-	}
-	for(k = i + 1; k <= j; k++) {
-		if(buff[i].priority != buff[k].priority) {
-			return (buff[i].priority > buff[k].priority ? i : k);
-		}
-	}
-//	fprintf(stderr, "no pivot found, i = %d, j = %d\n", i, j);
-//	for(k = i; k <= j; k++) {
-//		fprintf(stderr, "%4d", buff[k].priority);
-//	}
-//	fprintf(stderr, "\n");
-//	getchar();
-	return -1;
-}
-
-int partition_by_pivot_interval(interval buff[], int i, int j, dist_type piv, int *sum)
-// buff[i], ... , buff[j] をそれらの priority と piv との大小によって分け， 
-// piv より小さいものが buff[i], ... , buff[k-1] に，   
-// そうでないものが buff[k], ... , buff[j] に来るようにする. 
-// 右側のリストの先頭の位置(k)を返す. 
-// *sum に左側のリストの num の合計を返す．
-{
-	dist_type s = 0;
-	int left, right;
-	interval temp;
-	left = i;   right = j;
-	do {
-		while(buff[left].priority < piv && left < right) {
-			#ifdef INTERVAL_WITH_RUN
-			s += buff[left].run;
-			#else
-			s += buff[left].end + 1 - buff[left].start;
-			#endif
-			left++;
-		}
-		if(left >= right) break;
-		while(buff[right].priority >= piv && right > left) right--;
-		if (left < right) { 
-			temp = buff[left];
-			buff[left] = buff[right];
-			buff[right] = temp;
-		}
-	} while(left <= right);
-	*sum = s;
-	return left;
-}
-
-int partition_by_pivot_interval_no_sum(interval buff[], int i, int j, dist_type piv)
-// buff[i], ... , buff[j] をそれらの priority と piv との大小によって分け， 
-// piv より小さいものが buff[i], ... , buff[k-1] に，   
-// そうでないものが buff[k], ... , buff[j] に来るようにする. 
-// 右側のリストの先頭の位置(k)を返す. 
-{
-	int left, right;
-	interval temp;
-	left = i;   right = j;
-	do {
-		while(buff[left].priority < piv && left < right) {
-			left++;
-		}
-		if(left >= right) break;
-		while(buff[right].priority >= piv && right > left) right--;
-		if (left < right) { 
-			temp = buff[left];
-			buff[left] = buff[right];
-			buff[right] = temp;
-		}
-	} while(left <= right);
-	return left;
-}
-
-int quick_select_sum_k_interval(interval buff[], int i, int j, int sum)
-{
-	int pivotindex, m = i;
-	int s, done = 0; // 左側に priority が小さいもので num の合計が目標の sum 以下で，確定した部分の num の合計
-	while((pivotindex = find_pivot_interval(buff, i, j)) >= 0) {
-		m = partition_by_pivot_interval(buff, i, j, buff[pivotindex].priority, &s);
-		if(s + done > sum) {
-			j = m - 1;
-		} else if(s + done < sum) {
-			i = m;
-			done += s;
-		} else {
-			break;
-		}
-	}
-	return j;
-}
-
-//#define DEBUG_FILTERING
-#ifdef SELECTION_BY_MULTI_THREAD
-// 複数の interval からなる interval_list の ivl に格納されている interval から priority が上位（小さい）のものを選択する．
-// ただし，求めたものの interval 合計長が sum 以上となる最小数のものを選ぶ．
-int quick_select_sum_k_interval_by_multi_thread(interval_list *ivl, int sum)
-{
-	#ifdef DEBUG_FILTERING
-	fprintf(stderr, "quick_select_sum_k_interval_by_multi_thread\n");
-	#endif
-	int t, nt = ivl->nt;
-	int left[nt], right[nt];
-	int no_pivot[nt];
-	interval *list = NULL;
-	for(t = 0; t < nt; t++) {
-		left[t] = 0; right[t] = ivl->lg[t] - 1;
-		no_pivot[t] = 0;
-	}
-	int pivotindex;
-	dist_type pivot; //, prev = UINT_MAX;
-	int s = 0, done = 0; // 左側に priority が小さいもので num (run) の合計が目標の sum 以下で，確定した部分の num の合計
-	int ss[nt]; // partition で求めた pivot 以下のものの num (run) のスレッド毎の合計
-
-	int sum_t[nt];
-	int sum_part[nt];
-	#pragma omp parallel private(t, list)
-	{
-		t = omp_get_thread_num();
-		list = ivl->list + t * ivl->size;
-		sum_t[t] = 0;
-		for(int j = 0; j < ivl->lg[t]; j++) {
-			sum_t[t] += list[j].run;
-		}
-		sum_part[t] = sum_t[t];
-	}
-
-	while(1) {
-		// まず，ピボットを求める．各スレッドが求めた list から探す．
-		pivot = UINT_MAX;
-		for(t = 0; t < nt; t++) {
-			list = ivl->list + t * ivl->size;
-			if(left[t] < right[t] && !no_pivot[t]) { 
-				if((pivotindex = find_pivot_interval(list, left[t], right[t])) >= 0) {
-					pivot = list[pivotindex].priority;
-					break; // ピボットが見つかったので，break
-				}
-			}
-			no_pivot[t] = 1; // スレッド t の分担リストではピボットが見つからなかった．つぎのループでピボットを探すときは無駄にfind_pivotしないために，ピボットが見つからないことを記録しておく．
-		}
-#ifdef DEBUG_FILTERING
-fprintf(stderr, "find pivot done: t = %d, pivot = %u, done = %d, sum = %d\n", t, pivot, done, sum);
-#endif
-		if(pivot == UINT_MAX) { // ピボットが見つからない．
-			// スレッドが分担しているリストが空または全部同じpriorityになっている
-			// 最小のpriorityを見つける．
-			do {
-				dist_type min_pivot = UINT_MAX;
-				int min_t = -1;
-				for(t = 0; t < nt; t++) {
-					if(left[t] > right[t]) continue; // リストが空なのでスキップ
-					list = ivl->list + t * ivl->size;
-					if(list[left[t]].priority < min_pivot) {
-						min_pivot = list[left[t]].priority;
-						min_t = t;
-					}
-				}
-				if(min_t == -1) {
-					fprintf(stderr, "all list empty! （バグの可能性が大）\n"); getchar();
-				} else {
-					// 最小の priority を持つリストを全部選択したことにする．
-					done += sum_t[min_t];
-					left[min_t] = right[min_t] + 1;
-				}
-			} while(done < sum);
-			for(t = 0; t < nt; t++) {
-				ivl->lg[t] = right[t] < 0 ? 0 : left[t];
-				if(left[t] <= right[t]) {
-					sum_part[t] -= sum_t[t];
-				}
-			}
-			goto ret;
-		}
-		int m[nt];
-		s = 0;
-		#pragma omp parallel private(t, list) reduction(+:s)
-		{
-			t = omp_get_thread_num();
-			list = ivl->list + t * ivl->size;
-			m[t] = partition_by_pivot_interval(list, left[t], right[t], pivot, &s);
-			ss[t] = s;
-		}
-		if(s + done > sum) {
-			for(t = 0; t < nt; t++) {
-				right[t] = m[t] - 1;
-				sum_part[t] -= sum_t[t] - ss[t];
-				sum_t[t] = ss[t];
-			}
-		} else if(s + done < sum) {
-			for(t = 0; t < nt; t++) {
-				left[t] = m[t];
-				sum_t[t] -= ss[t];
-			}
-			done += s;
-		} else {
-			for(t = 0; t < nt; t++) {
-				right[t] = m[t] - 1;
-				sum_part[t] -= sum_t[t] - ss[t];
-				sum_t[t] = ss[t];
-				ivl->lg[t] = right[t] < 0 ? 0 : right[t] + 1;
-			}
-			done += s;
-			goto ret;
-		}
-	}
-	fprintf(stderr, "If this message is printed, while(1) loop is terminated unexpectedly.\n");
-	for(t = 0; t < nt; t++) {
-		ivl->lg[t] = right[t] < 0 ? 0 : right[t];
-	}
-	return done;
-ret: // return done;
-	// 並列して選択すると，スレッドで選択してデータ数が不揃いになる可能性がある．
-	// そのまま，第2段階検索を行うと，スレッドの処理時間にばらつきが出て，早く終わったスレッドが休み，遅くなるスレッドの終了を待つので，全体として遅くなる．
-	// それを防ぐために，データ数ができるだけ均一になるように，区間を移動してバランスを取っておく．
-	// 多すぎるスレッドから，少なすぎるスレッドに区間を移動する．
-// #define REVERSE
-#define BALANCING
-#ifdef BALANCING
-#define BALANCE_WITH_SORT
-#ifndef REVERSE
-#ifdef BALANCE_WITH_SORT // リストのデータ数で sort してからバランスを取る
-	{
-		#ifdef DEBUG_FILTERING
-		fprintf(stderr, "BALANCE_WITH_SORT\n");
-		#endif
-		int ave_num = done / nt;
-		// sum_part[0], ... , sum_part[nt - 1] を idx を用いて降順に相対ソートする．
-		// sum_part[idx[0]] >= sum_part[idx[1]] >= ... >= sum_part[ifx[nt - 1]] となるようにする．
-		// 最初は，すべての i に対して，idx[i] = i としておく．
-		int idx[nt], movable[nt];
-		for(int t = 0; t < nt; t++) {
-			idx[t] = t;
-			movable[t] = 1;
-		}
-		for(int i = 1; i < nt; i++) {
-			int temp = idx[i], j;
-			for(j = i; j > 0 && sum_part[idx[j - 1]] < sum_part[temp]; j--) {
-				idx[j] = idx[j - 1];
-			}
-			idx[j] = temp;
-		}
-		int lp = 0;
-
-		#ifdef DEBUG_FILTERING
-		for(int i = 0; i < nt; i++) {
-			fprintf(stderr, "idx[%d] = %d, sum_part[%d] = %d\n", i, idx[i], idx[i], sum_part[idx[i]]); 
-		}
-		#endif
-
-#define COLLECT_FIRST // 移動するものを集めておいて，まとめて移動する
-#ifdef COLLECT_FIRST
-		#ifdef DEBUG_FILTERING
-		fprintf(stderr, "COLLECT_FIRST\n");
-		#endif
-		// 移動するものを集めておいて，まとめて移動する．∵大き過ぎて移動できない区間があると，移動するものが飛び飛びになるので．
-		while(1) {
-			lp++;
-			// sum_part[t] が最大のものが ave_num を超えていて移動可能な interval を持っているなら，移動を試みる．
-			int max_t = -1;
-			for(int i = 0; i < nt; i++) {
-				max_t = idx[i];
-				if(ivl->lg[max_t] == 1) movable[max_t] = 0;
-				if(movable[max_t]) break;
-			}
-			if(!movable[max_t]) {
-				// fprintf(stderr, "no more movable list.\n");
-				break;
-			}
-			interval *max_list = ivl->list + max_t * ivl->size;
-			if(sum_part[max_t] < 1.01 * ave_num) break; // データ数が少ないので，終了．
-			// リストの後部から順に移動できるもの後部（左側）に集める．
-			int min_t = idx[nt - 1];
-			interval *min_list = ivl->list + min_t * ivl->size;
-			if(sum_part[min_t] > 0.99 * ave_num) break; // 不足するデータ数が少ないものしかないので，終了．
-			int m = ivl->lg[max_t] - 1, sum_move = 0; 
-			static int *not_movable = NULL, ivl_size = 0;
-			int num_not_movable = 0;
-			if(not_movable == NULL) {
-				not_movable = MALLOC(sizeof(int) * ivl->size);
-				ivl_size = ivl->size;
-			} else if(ivl->size > ivl_size) {
-				FREE(not_movable, sizeof(int) * ivl_size);
-				not_movable = MALLOC(sizeof(int) * ivl->size);
-				ivl_size = ivl->size;
-			}
-			while(m > 0 && sum_part[max_t] - sum_move >= 1.01 * ave_num) {
-				while(m >= 0 && sum_part[max_t] - sum_move - max_list[m].run < ave_num) {
-					// m 番目の interval の run が長過ぎる（移動すると max_t の run の合計が ave_num を切ってしまう．
-					not_movable[num_not_movable++] = m--; // 移動できないものを覚えておいて，次（m--）を探す．
-				}
-				// 上のループを抜けたときは，m = -1 または m >= 0 && sum_part[max_t] - sum_move - max_list[m].run >= ave_num
-				if(m < 0) break; // 右端まで到達して，移動できるものが見つからなかった．
-				// m >= 0 であれば，m 番目のものは移動できる．
-				sum_move += max_list[m--].run;
-				if(sum_part[min_t] + sum_move >= ave_num) {
-					// ここまでで見つけた移動可能なものを min_t に移動すると，初めて min_t が ave_num 以上になるので，ここまでを移してしまう．
-					// そのために，ループを脱出する．
-					break;
-				}
-			}
-			if(sum_move == 0) { // 移動できるものが見つからなかった．∵どれを移動しても短くなり過ぎる．つまり，ここからは移動不可．
-				movable[max_t] = 0;
-				break;
-			}
-			m++;
-			while(num_not_movable) {
-				// 途中に移動できないものがあるので，それを右に移動して，左側に移動できるものを集める．
-				// m のものは移動できる．not_movable[i] (i = 0, ... , num_not_movable - 1) のものは移動できない．
-				interval temp = max_list[m];
-				max_list[m] = max_list[not_movable[--num_not_movable]];
-				max_list[not_movable[num_not_movable]] = temp;
-				m++; // m に移動できないものを置いたので，m を左に．
-				// まだ，移動できないものが右側にあるならば，m には移動できるものがあるはず．
-			}
-			// ここでは，m から ivl->lg[max_t] - 1 までに移動できるものが連続して集められている．
-			// run の合計は sum_move であり，それを移動しても，残りの run の合計は ave_num 以上．
-			// 集めたものを min_t に移す．
-			memcpy(min_list + ivl->lg[min_t], max_list + m, sizeof(interval) * (ivl->lg[max_t] - m));
-			sum_part[max_t] -= sum_move;
-			sum_part[min_t] += sum_move;
-			ivl->lg[min_t] += ivl->lg[max_t] - m;
-			ivl->lg[max_t] = m;
-			int j;
-			for(j = 0; j < nt - 1 && sum_part[idx[j + 1]] > sum_part[max_t]; j++) idx[j] = idx[j + 1];
-			idx[j] = max_t;
-			for(j = nt - 1; j > 0 && sum_part[idx[j - 1]] < sum_part[min_t]; j--) idx[j] = idx[j - 1];
-			idx[j] = min_t;
-		}
-
-		#ifdef DEBUG_FILTERING
-		for(int i = 0; i < nt; i++) {
-			fprintf(stderr, "idx[%d] = %d, sum_part[%d] = %d\n", i, idx[i], idx[i], sum_part[idx[i]]); 
-		}
-//		getchar();
-		#endif
-#else // !COLLECT_FIRST
-		// 末尾から連続して移動できるものの移動を試みる．詰め合わせたりしない．
-		while(1) {
-			lp++;
-			// sum_part[t] が最大のものが ave_num を超えていて移動可能な interval を持っているなら，移動を試みる．
-			int max_t = -1;
-			for(int i = 0; i < nt; i++) {
-				max_t = idx[i];
-				if(ivl->lg[max_t] == 1) {
-					movable[max_t] = 0;
-				}					
-				if(movable[max_t]) break;
-			}
-			if(!movable[max_t]) {
-				fprintf(stderr, "no more movable list.\n");
-				break;
-			}
-			interval *max_list = ivl->list + max_t * ivl->size;
-			if(sum_part[max_t] < 1.01 * ave_num) break; // データ数が少ないので，終了．
-			// リストの後部から順に移動できるものを移動する．
-			int min_t = idx[nt - 1];
-			interval *min_list = ivl->list + min_t * ivl->size;
-			if(sum_part[min_t] > 0.99 * ave_num) break; // 不足するデータ数が少ないので，終了．
-			int m = ivl->lg[max_t] - 1, sum_move = 0;
-			if(sum_part[max_t] - max_list[m].run < ave_num) {
-				// 最後尾の run が長過ぎるので，移動できない．移動できる interval を探す．
-				int n;
-				for(n = m - 1; n >= 0; n--) {
-					if(sum_part[max_t] - max_list[n].run >= ave_num) {
-						break;
-					}
-				}
-				if(n >= 0) {
-					interval temp = max_list[m];
-					max_list[m] = max_list[n];
-					max_list[n] = temp;
-				} else {
-					// この max_t からは移動できないので，mark して終了．
-					movable[max_t] = 0;
-					break;
-				}
-			}
-			for(m = ivl->lg[max_t] - 1; m > 0; m--) {
-				if(sum_part[max_t] - sum_move - max_list[m].run < ave_num) {
-					m++;
-					break; // これ以上移動するとデータ数が ave_num を切ってしまう．
-				}
-				if(sum_part[min_t] + sum_move + max_list[m].run >= ave_num) { // 移動先のデータ数が初めて ave_num 以上になるので，ここまでを移動する．
-					sum_move += max_list[m].run;
-					break;
-				}
-				sum_move += max_list[m].run;
-			}
-			if(m == 0) m = 1;
-			memcpy(min_list + ivl->lg[min_t], max_list + m, sizeof(interval) * (ivl->lg[max_t] - m));
-			if(sum_move == 0) {
-				fprintf(stderr, "sum_move == 0. May be bug?. To continue, hit <enter>.\n");
-				getchar();
-			}
-			sum_part[max_t] -= sum_move;
-			int j;
-			for(j = 0; j < nt - 1 && sum_part[idx[j + 1]] > sum_part[max_t]; j++) idx[j] = idx[j + 1];
-			idx[j] = max_t;
-			sum_part[min_t] += sum_move;
-			for(j = nt - 1; j > 0 && sum_part[idx[j - 1]] < sum_part[min_t]; j--) {
-				idx[j] = idx[j - 1];
-			}
-			idx[j] = min_t;
-			ivl->lg[min_t] += ivl->lg[max_t] - m;
-			ivl->lg[max_t] = m;
-
-			int sum_part2[nt];
-			#pragma omp parallel private(t, list)
-			{
-				t = omp_get_thread_num();
-				sum_part2[t] = 0;
-				list = ivl->list + t * ivl->size;
-				for(int j = 0; j < ivl->lg[t]; j++) {
-					sum_part2[t] += list[j].run;
-				}
-			}
-			for(t = 0; t < nt; t++) {
-				if(sum_part2[t] != sum_part[t]) {
-					fprintf(stderr, "(#)call = %d, %d: t = %d, sum = %d, sum2 = %d\n", num_call, lp, t, sum_part[t], sum_part2[t]);
-					getchar();
-				}
-			}
-			int sum2 = 0, sum3 = 0;
-			for(t = 0; t < nt; t++) {
-				sum2 += sum_part[t];
-				sum3 += sum_part2[t];
-			}
-			if(org_sum != sum2) {
-				fprintf(stderr, "org_sum = %d, sum2 = %d\n", org_sum, sum2); getchar();
-			}
-			if(org_sum != sum3) {
-				fprintf(stderr, "org_sum = %d, sum3 = %d\n", org_sum, sum3); getchar();
-			}
-
-		}
-#endif
-	}
-#else // !BALANCE_WITH_SORT
-	{
-		int ave_num = done / nt;
-		while(1) {
-			// sum_part[t] が ave_num を超えていて移動可能な interval を持つ t を探す．(max_t)
-			int max_t;
-			for(max_t = 0; max_t < nt; max_t++) {
-				interval *list = ivl->list + max_t * ivl->size;
-				if(ivl->lg[max_t] > 1 && sum_part[max_t] - list[ivl->lg[max_t] - 1].run >= 1.01 * ave_num) break;
-			}
-			if(max_t == nt) {
-				break; // 移動可能な interval を持つものがないので終了．
-			}
-
-			// リストの後部で移動できるものを移動する．
-			interval *max_list = ivl->list + max_t * ivl->size;
-			int m = ivl->lg[max_t] - 1, sum_move = max_list[m--].run;
-			while(sum_part[max_t] - sum_move - max_list[m].run > ave_num) sum_move += max_list[m--].run;
-			m++; // m まで移動すると，max_t が少なくなり過ぎる（ave_num 以下になる）ので，m++ とする．
-			int max_t_lg = m; // 移動が終わると max_t の長さは m になる．
-
-			// m 以降から ivl_lg[max_t] - 1 までを移動する（max_t は m - 1 までで ave_num を超えているので，移動先は見つかるはず）．
-			// （sum_part[t] が最小の t を選んだ方がよいかもしれないが，とりあえず順に移動先を探す）
-			for(t = 0; t < nt && m < ivl->lg[max_t]; t++) {
-				interval *list = ivl->list + t * ivl->size;
-				while(sum_part[t] < ave_num && m < ivl->lg[max_t]) { // t に空きがあるので，移動先を t にする．
-					sum_part[t] += max_list[m].run;
-					sum_part[max_t] -= max_list[m].run;
-					list[ivl->lg[t]++] = max_list[m++];
-				}
-			}
-			ivl->lg[max_t] = max_t_lg;
-		}
-	}
-#endif
-#else // REVERSE
-	{
-
-		int processed[nt];
-		for(t = 0; t < nt; t++) {
-			processed[t] = 0;
-		}
-		while(1) {
-			int min_t = -1, min_sum = done, max_t = -1, max_sum = 0;
-			// sum_part[t] が最小・最大の t を求める．(min_t, max_t)
-			for(t = 0; t < nt; t++) {
-				if(sum_part[t] < min_sum) {
-					min_sum = sum_part[t];
-					min_t = t;
-				}
-				if(processed[t]) continue;
-				if(sum_part[t] > max_sum && ivl->lg[t] > 1) {
-					max_sum = sum_part[t];
-					max_t = t;
-				}
-			}
-			processed[max_t] = 1;
-			// max_sum が平均 ave_num の 1.1 倍を超えるときは，その後部の interval を min_t の list の末尾に移動する．
-			if(max_sum > ave_num * 1.1) {
-				interval *min_list = ivl->list + min_t * ivl->size;
-				interval *max_list = ivl->list + max_t * ivl->size;
-				// max_t のリストの末尾を min_t のリストの末尾に移動する
-				if(ivl->lg[min_t] > ivl->size) {
-					fprintf(stderr, "cannot balance: lg[%d] = %d exceed size (%d)\n", min_t, ivl->lg[min_t], ivl->size);
-					break;
-				} else if(ivl->lg[max_t] == 1) {
-					fprintf(stderr, "cannot balance: lg[%d] = %d, max_list[0].run = %d\n", max_t, ivl->lg[max_t], max_list[0].run);
-					break;
-				}
-				int num_move = sum_part[max_t] - ave_num; // 多い方から移動できる最大データ数
-				if(ave_num - sum_part[min_t] < num_move) {
-					// 最小のデータ数の不足分が少ないときは，不足分だけ移動する
-					num_move = ave_num - sum_part[min_t];
-				}
-				int sum_move = 0;
-				int m;
-				int num_ivl = 0; // 連続移動する interval 数
-				// max_t のリストの末尾から連続してデータ数が num_move を超えない範囲を求める．
-				for(m = ivl->lg[max_t] - 1; m > 0; m--) { // m > 0 としているのは，少なくとも1個は残すため．
-					if(sum_move + max_list[m].run <= num_move) {
-						num_ivl++; // interval 数 r = ivl->lg[min_t]
-						sum_move += max_list[m].run; // データ数
-					} else {
-						break;
-					}
-				}
-				if(num_ivl > 0) {
-					memcpy(min_list + ivl->lg[min_t], max_list + m + 1, sizeof(interval) * num_ivl);
-					ivl->lg[min_t] += num_ivl; // min_t のリスト長を増やす
-				}
-				// 末尾からは，これ以上連続して移動できないので，途中のものでも移動できるものがあれば移動する．
-				// max_list[m].run が大きすぎるので，これより左 (m - 1 以下) で移動できるものを探す．
-				// これ以降は一つずつ移動する．
-				for(int n = m - 1; sum_move < num_move && n >= 0; n--) {
-					if(sum_move + max_list[n].run < num_move) {
-						sum_move += max_list[n].run;
-						min_list[ivl->lg[min_t]++] = max_list[n];
-						max_list[n] = max_list[m--];
-						ivl->lg[max_t]--;
-					}
-				}
-				sum_part[max_t] -= sum_move;
-				sum_part[min_t] += sum_move;
-				if(sum_part[min_t] >= max_sum) {
-					break;
-				}
-				if(sum_part[max_t] <= min_sum) {
-					break;
-				}
-			} else {
-				break;
-			}
-		}
-	}
-#endif
-#endif
-	return done;
-}
-#endif
-
-#endif // INTERVAL_WITH_PRIORITY
-
 int partition_by_pivot_answer_mt(answer_type ans[], int i, int j, dist_type piv)
 // ans[i], ... , ans[j] をそれらの dist と piv との大小によって分け， 
 // piv より小さいものが ans[i], ... , ans[k - 1] に，   
@@ -11096,9 +7732,6 @@ for(t = 0; t < nt; t++) {
 }
 #endif
 
-//#endif // INTERVAL_WITH_PRIORITY
-
-#ifdef USE_INTERVAL
 int balance_interval_list(interval_list *ivl)
 {
 	int nt = ivl->nt;
@@ -11211,7 +7844,6 @@ int balance_interval_list(interval_list *ivl)
 
 	return sum_all;
 }
-#endif
 
 #define KNN_BUFFER_FACTOR 3 // kNN_buffer の buff の大きさを k の何倍にするかを指定する．
 #define KNN_BUFFER_FACTOR2 2 // タイ（同点）のものをここまで残す．
@@ -11664,17 +8296,10 @@ int answer_check_interval(struct_bucket *bucket, answer_type *ans, interval_list
 			for(int i = 0; i < lg[t] && !found; i++) {
 				interval *list = ivl->list + t * size;
 				#ifdef DATA_NUM_IN_SKETCH_ORDER
-					#ifdef INTERVAL_WITH_RUN
 					if(ans->data_num >= list[i].start && ans->data_num <= list[i].start + list[i].run - 1) {
 						found = 1;
 					}
-					#else
-					if(ans->data_num >= list[i].start && ans->data_num <= list[i].end) {
-						found = 1;
-					}
-					#endif
 				#else
-					#ifdef INTERVAL_WITH_RUN
 					for(int j = list[i].start; j < list[i].start + list[i].run; j++) {
 						int data_num_of_candidate = bucket->idx[j];
 						if(ans->data_num == data_num_of_candidate) {
@@ -11682,15 +8307,6 @@ int answer_check_interval(struct_bucket *bucket, answer_type *ans, interval_list
 							break;
 						}
 					}
-					#else
-					for(int j = list[i].start; j <= list[i].end; j++) {
-						int data_num_of_candidate = bucket->idx[j];
-						if(ans->data_num == data_num_of_candidate) {
-							found = 1;
-							break;
-						}
-					}
-					#endif
 				#endif
 			}
 		}
@@ -11704,17 +8320,10 @@ int answer_check_interval(struct_bucket *bucket, answer_type *ans, interval_list
 				for(int i = 0; i < lg[t] && !found; i++) {
 					interval *list = ivl->list + t * size;
 					#ifdef DATA_NUM_IN_SKETCH_ORDER
-						#ifdef INTERVAL_WITH_RUN
 						if(ans->data_num >= list[i].start && ans->data_num <= list[i].start + list[i].run - 1) {
 							found = 1;
 						}
-						#else
-						if(ans->data_num >= list[i].start && ans->data_num <= list[i].end) {
-							found = 1;
-						}
-						#endif
 					#else
-						#ifdef INTERVAL_WITH_RUN
 						for(int j = list[i].start; j < list[i].start + list[i].run; j++) {
 							int data_num_of_candidate = bucket->idx[j];
 							if(ans->data_num == data_num_of_candidate) {
@@ -11722,15 +8331,6 @@ int answer_check_interval(struct_bucket *bucket, answer_type *ans, interval_list
 								break;
 							}
 						}
-						#else
-						for(int j = list[i].start; j <= list[i].end; j++) {
-							int data_num_of_candidate = bucket->idx[j];
-							if(ans->data_num == data_num_of_candidate) {
-								found = 1;
-								break;
-							}
-						}
-						#endif
 					#endif
 				}
 			}
@@ -11741,19 +8341,11 @@ int answer_check_interval(struct_bucket *bucket, answer_type *ans, interval_list
 			for(int i = 0; i < lg[t] && !found; i++) {
 				interval *list = ivl->list + t * size;
 				#ifdef DATA_NUM_IN_SKETCH_ORDER
-					#ifdef INTERVAL_WITH_RUN
 					if(ans->data_num >= list[i].start && ans->data_num <= list[i].start + list[i].run - 1) {
 						found = 1;
 						break;
 					}
-					#else
-					if(ans->data_num >= list[i].start && ans->data_num <= list[i].end) {
-						found = 1;
-						break;
-					}
-					#endif
 				#else
-					#ifdef INTERVAL_WITH_RUN
 					for(int j = list[i].start; j < list[i].start + list[i].run; j++) {
 						int data_num_of_candidate = bucket->idx[j];
 						if(ans->data_num == data_num_of_candidate) {
@@ -11761,15 +8353,6 @@ int answer_check_interval(struct_bucket *bucket, answer_type *ans, interval_list
 							break;
 						}
 					}
-					#else
-					for(int j = list[i].start; j <= list[i].end; j++) {
-						int data_num_of_candidate = bucket->idx[j];
-						if(ans->data_num == data_num_of_candidate) {
-							found = 1;
-							break;
-						}
-					}
-					#endif
 				#endif
 			}
 		}

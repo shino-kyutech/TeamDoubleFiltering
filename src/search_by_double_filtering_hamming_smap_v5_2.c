@@ -8,7 +8,7 @@
 // SMAP は圧縮形式のみ，射影距離計算も圧縮形式対応のみとし，それ以外は削除（未対応）
 // UNPACKED_SMAP, USE_TABLE_FOR_UMPACKED に対応する部分を削除
 // USE_INTERVAL が定義されているときは, 
-// ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする．
+// ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする．??
 // そうでないときは，これまでのデータ番号のリストを用いる．
 //
 // v1: Filteringを並列化（ただし，2, 4, 8, 16, 32 スレッドのみ）
@@ -68,7 +68,6 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 	int data_num[], int num_candidates_1st, int num_candidates_2nd)
 {
     struct timespec tp1, tp2, tp3;
-    #ifdef USE_INTERVAL
         clock_gettime(CLOCK_METHOD, &tp1);
         // Interval list を用いるときは，
         // ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする． 
@@ -102,13 +101,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
         #endif
         clock_gettime(CLOCK_METHOD, &tp2);
 
-        #ifdef SECOND_FILTERING_KNN_BUFFER
-        // 2nd filtering で 1st filtering で求めた nc 個の候補から qpsmap 射影距離で上位（近い方が上位） num_candidates_2nd を選択する．
         kNN_buffer *buff = new_kNN_buffer(num_candidates_2nd);
-        #elif defined(SECOND_FILTERING_SELECT)
-        // 1st filtering で求めた nc 個の候補のデータ番号と qpsmap 射影距離の対を配列に格納し，最後に quick_select_k_answer で num_candidates_2nd 個を選択する．
-        answer_type *ans_buff = MALLOC(sizeof(answer_type) * nc * 2);
-        #endif
 
         int k = 0;
         for(int t = 0; t < ivl->nt; t++) {
@@ -120,364 +113,26 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
                     // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
                     dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
                     answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                    #ifdef SECOND_FILTERING_KNN_BUFFER
-                        push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                    #else
-                        ans_buff[k] = ans;
-                    #endif
+                    push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
                 }
             }
         }
 
-        #ifdef SECOND_FILTERING_KNN_BUFFER
-            flush_kNN_buffer(buff);
-            for(int i = 0; i < num_candidates_2nd; i++) {
-                data_num[i] = buff->buff[i].data_num;
-            }
-            free_kNN_buffer(buff);
-        #elif defined(SECOND_FILTERING_SELECT)
-            quick_select_k_answer(ans_buff, 0, k - 1, num_candidates_2nd);
-            for(int i = 0; i < num_candidates_2nd; i++) {
-                data_num[i] = ans_buff[i].data_num;
-            }
-            FREE(ans_buff, sizeof(answer_type) * nc * 2);
-        #endif
+        flush_kNN_buffer(buff);
+        for(int i = 0; i < num_candidates_2nd; i++) {
+            data_num[i] = buff->buff[i].data_num;
+        }
+        free_kNN_buffer(buff);
 
         clock_gettime(CLOCK_METHOD, &tp3);
         filtering_cost_1st += e_time(&tp1, &tp2);
         filtering_cost_2nd += e_time(&tp2, &tp3);
         
-        #ifdef SECOND_FILTERING
-        return num_candidates_2nd;
-        #elif defined(SECOND_FILTERING_SELECT)
-        return num_candidates_2nd;
-        #else
         return k;
-        #endif
-
-    #elif defined(FILTERING_BY_SKETCH_ENUMERATION_HAMMING) // WITHOUT_USING_INTERVAL (single-thread)
-        static sub_dimension *table = NULL;
-        static int table_size = 0;
-        #ifdef ENUM_DIM
-        int enum_dim = ENUM_DIM;
-        #else
-        int enum_dim = PJT_DIM - 19; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-        #endif
-        if(table == NULL) {
-            table_size = (1 << enum_dim) + 1;
-            table = make_table_for_enumeration_hamming(table_size, enum_dim);
-        }
-
-        #define TABLE_SPP
-        // tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-        #ifdef TABLE_SPP
-        static sub_dimension *table_spp = NULL;
-        #ifdef SPP_BIT
-        int spp_bit = SPP_BIT; // 追加のビット数
-        #else
-        int spp_bit = 16; // 追加のビット数
-        #endif
-        static int table_spp_size = 0;
-        if(table_spp == NULL) {
-            table_spp_size = (1 << spp_bit) + 1;
-            table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-            fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-        }
-        #endif
-
-        static int first = 1;
-        if(first) {
-            #ifdef SECOND_FILTERING_SELECT
-            fprintf(stderr, "double-filtering by enum_hamm and qpsmap (single-thread). using table, quick_select, enum_dim = %d, spp_bit = %d\n", enum_dim, spp_bit);
-            #elif defined(SECOND_FILTERING_KNN_BUFFER)
-            fprintf(stderr, "double-filtering by enum_hamm and qpsmap (single-thread). using table, kNN_buffer, enum_dim = %d, spp_bit = %d\n", enum_dim, spp_bit);
-            #elif defined(SKETCH_ENUMERATION_ONLY)
-            fprintf(stderr, "double-filtering by enum_hamm and qpsmap (single-thread). using table, enumeration only, enum_dim = %d, spp_bit = %d\n", enum_dim, spp_bit);
-            #else
-            fprintf(stderr, "double-filtering by enum_hamm and qpsmap (single-thread). using table, 1st only, enum_dim = %d, spp_bit = %d\n", enum_dim, spp_bit);
-            #endif
-            first = 0;
-        }
-
-        int *bd_idx = qs->idx;
-        int *bkt = bucket->bkt;
-
-        int k = 0; // 列挙したスケッチから得られたデータ番号の個数
-        int n; // 列挙したスケッチの個数
-        sketch_type sk, base_mask = 0, base_mask2 = 0;
-        #ifdef TABLE_SPP
-        int n_spp = 1; // つぎに使用する追加パターン番号（0 のものは空集合なので，1から使用する）
-        int n_spp2 = 1; // 追加パターンも使い切ったら，さらに追加する．
-        #endif
-
-        #ifdef SECOND_FILTERING_KNN_BUFFER
-        // 2nd filtering で 1st filtering で求めた num_candidates_1st 個の候補から qpsmap 射影距離で上位（近い方が上位） num_candidates_2nd を選択する．
-        kNN_buffer *buff = new_kNN_buffer(num_candidates_2nd);
-        #elif defined(SECOND_FILTERING_SELECT)
-        // 1st filtering で求めた num_candidates_1st 個の候補のデータ番号と qpsmap 射影距離の対を配列に格納し，最後に quick_select_k_answer で num_candidates_2nd 個を選択する．
-        answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_candidates_1st);
-        #endif
-
-        // table を使って mask を作って，つぎのスケッチを列挙する．n は，最初のパターンで列挙されるパターン番号
-        for(n = 0; k < num_candidates_1st; n++) {
-            sketch_type mask = base_mask;
-            for(int m = 0; m < table[n].num; m++) {
-                mask |= (1 << bd_idx[(int)table[n].dim[m]]);
-            }
-            sk = qs->sketch ^ mask;
-            for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_candidates_1st; j++, k++) {
-                #if defined(SECOND_FILTERING_KNN_BUFFER) || defined(SECOND_FILTERING_SELECT)
-                    // ここで，スケッチ順に qpsmap が並んでいるときは，質問と j 番目の qpsmap との部分復元射影距離を求めて
-                    dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                    answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                    #ifdef SECOND_FILTERING_KNN_BUFFER
-                    push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                    #else
-                    ans_buff[k] = ans;
-                    #endif
-                #elif defined(SKETCH_ENUMERATION_ONLY)
-                    // 何もしない
-                #else
-                    data_num[k] = bucket->idx[j];
-                #endif
-            }
-            if(table[n + 1].num == 0) { // 用意したパターンがなくなった．
-                #ifdef TABLE_SPP
-                if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-                    if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-                    n_spp = 0;
-                    n_spp2++;
-                    base_mask2 = 0;
-                    for(int m = 0; m < table_spp[n_spp2].num; m++) {
-                        base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-                    }
-                }
-                base_mask = base_mask2;
-                for(int m = 0; m < table_spp[n_spp].num; m++) {
-                    base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-                }
-                n = -1; // for の再初期化で n++ となって，0 になる．
-                n_spp++;
-                #else
-                break;
-                #endif
-            }
-        }
-        #ifdef SECOND_FILTERING_KNN_BUFFER
-        flush_kNN_buffer(buff);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            data_num[i] = buff->buff[i].data_num;
-        }
-        free_kNN_buffer(buff);
-        #elif defined(SECOND_FILTERING_SELECT)
-        quick_select_k_answer(ans_buff, 0, num_candidates_1st - 1, num_candidates_2nd);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            data_num[i] = ans_buff[i].data_num;
-        }
-        FREE(ans_buff, sizeof(answer_type) * num_candidates_1st);
-        #endif
-
-        #ifdef ENUM_CHECK
-        if(table[n].num > max_H) {
-            max_H = table[n].num;
-            fprintf(stderr, "max Hamming = %d\n", max_H);
-        }
-        if(n > max_n) {
-            max_n = n;
-            fprintf(stderr, "max n (number of used table entries) = %d\n", max_n);
-        }
-        #endif
-        #ifdef SECOND_FILTERING_KNN_BUFFER
-        return num_candidates_2nd;
-        #elif defined(SECOND_FILTERING_SELECT)
-        return num_candidates_2nd;
-        #else
-        return k;
-        #endif
-    #else // FILTERING_BY_SKETCH_ENUMERATION_C2N (WITHOUT_USING_INTERVAL) (single-thread)
-        sketch_type s;
-        QUE_c2 qu, qu2;
-        int *bd = qs->bd, *bd_idx = qs->idx;
-        int *bkt = bucket->bkt;
-		static struct_que_c2_n *que = NULL;
-        if(que == NULL) que = MALLOC(sizeof(struct_que_c2_n));
-
-        #ifdef SECOND_FILTERING_KNN_BUFFER
-        // 2nd filtering で 1st filtering で求めた num_candidates_1st 個の候補から qpsmap 射影距離で上位（近い方が上位） num_candidates_2nd を選択する．
-        kNN_buffer *buff = new_kNN_buffer(num_candidates_2nd);
-        #elif defined(SECOND_FILTERING_SELECT)
-        // 1st filtering で求めた num_candidates_1st 個の候補のデータ番号と qpsmap 射影距離の対を配列に格納し，最後に quick_select_k_answer で num_candidates_2nd 個を選択する．
-        answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_candidates_1st);
-        #endif
-
-        s = qs->sketch; // 先頭は質問のスケッチ
-        int k = 0;
-
-        for(int j = bkt[s]; j < bkt[s + 1] && k < num_candidates_1st; j++, k++) {
-            #if defined(SECOND_FILTERING_KNN_BUFFER) || defined(SECOND_FILTERING_SELECT)
-                // ここで，スケッチ順に qpsmap が並んでいるときは，質問と j 番目の qpsmap との部分復元射影距離を求めて
-                dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                #ifdef SECOND_FILTERING_KNN_BUFFER
-                push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                #else
-                ans_buff[k] = ans;
-                #endif
-            #elif defined(SKETCH_ENUMERATION_ONLY)
-                // 何もしない
-            #else
-                data_num[k] = bucket->idx[j];
-            #endif
-        }
-
-        s = s ^ (1 <<  bd_idx[0]); // 先頭の次は、質問のスケッチと距離下限が最小のビットだけが異なるもの
-
-        for(int j = bkt[s]; j < bkt[s + 1] && k < num_candidates_1st; j++, k++) {
-            #if defined(SECOND_FILTERING_KNN_BUFFER) || defined(SECOND_FILTERING_SELECT)
-                // ここで，スケッチ順に qpsmap が並んでいるときは，質問と j 番目の qpsmap との部分復元射影距離を求めて
-                dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                #ifdef SECOND_FILTERING_KNN_BUFFER
-                push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                #else
-                ans_buff[k] = ans;
-                #endif
-            #elif defined(SKETCH_ENUMERATION_ONLY)
-                // 何もしない
-            #else
-                data_num[k] = bucket->idx[j];
-            #endif
-        }
-
-        make_empty_que_c2_n(que);
-
-        // enq pattern of 0...10
-        qu.cursor = new_que_e2_n(que);
-        qu.key = bd[bd_idx[1]];
-        que->details[qu.cursor].sk = qs->sketch ^ (1 << bd_idx[1]);
-        que->details[qu.cursor].pt = 1 << 1; // pt = "0...00000010"
-        enq_c2_n(&qu, que);		
-
-        while(deq_c2_n(&qu, que) && k < num_candidates_1st) {
-            s = que->details[qu.cursor].sk; // 列挙のつぎのスケッチ
-            for(int j = bkt[s]; j < bkt[s + 1] && k < num_candidates_1st; j++, k++) {
-                #if defined(SECOND_FILTERING_KNN_BUFFER) || defined(SECOND_FILTERING_SELECT)
-                    // ここで，スケッチ順に qpsmap が並んでいるときは，質問と j 番目の qpsmap との部分復元射影距離を求めて
-                    dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                    answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                    #ifdef SECOND_FILTERING_KNN_BUFFER
-                    push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                    #else
-                    ans_buff[k] = ans;
-                    #endif
-                #elif defined(SKETCH_ENUMERATION_ONLY)
-                    // 何もしない
-                #else
-                    data_num[k] = bucket->idx[j];
-                #endif
-            }
-
-            switch(que->details[qu.cursor].pt & 15) {
-            case 0: // X0000 -> enq(X0001) and enq(Y10^{m+1}) if X0000 = Y010^m
-            case 8: // X1000 -> enq(X1001) and enq(Y10^{m+1}) if X0000 = Y010^m
-                {
-                    int m = lsb_pos(que->details[qu.cursor].pt);
-                    if(m > 0 && m < PJT_DIM - 1 && !(que->details[qu.cursor].pt & (1 << (m + 1)))) {
-                        // Y010^m -> Y10^{m+1}
-                        qu2.cursor = new_que_e2_n(que);
-                        qu2.key = qu.key + bd[bd_idx[m + 1]] - bd[bd_idx[m]];
-                        que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[m + 1])) ^ (1 << bd_idx[m]);
-                        que->details[qu2.cursor].pt = que->details[qu.cursor].pt + (1 << m);
-                        // Y010^m -> Y010^{m-1}1
-                        qu.key = qu.key + bd[bd_idx[0]];
-                        que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[0]);
-                        que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-                        enq_c2_n(&qu, que);
-                        enq_c2_n(&qu2, que);
-                    } else {
-                        qu.key = qu.key + bd[bd_idx[0]];
-                        que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[0]);
-                        que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-                        enq_c2_n(&qu, que);
-                    }
-                }
-                break;
-            case 4:  // X0100 -> enq(X0101) and enq(X1000)
-                // X1000
-                qu2.cursor = new_que_e2_n(que);
-                qu2.key = qu.key + bd[bd_idx[3]] - bd[bd_idx[2]];
-                que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[3])) ^ (1 << bd_idx[2]);
-                que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 4;
-                // X0101
-                qu.key = qu.key + bd[bd_idx[0]];
-                que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 << bd_idx[0]);
-                que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-                enq_c2_n(&qu, que);
-                enq_c2_n(&qu2, que);
-                break;
-            case 1:  // X0001 -> enq(X0010)
-            case 5:  // X0101 -> enq(X0110)
-            case 9:  // X1001 -> enq(X1010)
-            case 13: // X1101 -> enq(X1110) (note that X <> 0, because 0...00 and 0...01 is already processed before while loop)
-                qu.key = qu.key + bd[bd_idx[1]] - bd[bd_idx[0]];
-                que->details[qu.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[1])) ^ (1 << bd_idx[0]);
-                que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-                enq_c2_n(&qu, que);
-                break;
-            case 2:  // X0010 -> enq(X0011) and enq(X0100)
-            case 10: // X1010 -> enq(X1011) and enq(X1100)
-                // X0100 and X1100
-                qu2.cursor = new_que_e2_n(que);
-                qu2.key = qu.key +  bd[bd_idx[2]] -  bd[bd_idx[1]];
-                que->details[qu2.cursor].sk = (que->details[qu.cursor].sk ^ (1 << bd_idx[2])) ^ (1 << bd_idx[1]);
-                que->details[qu2.cursor].pt = que->details[qu.cursor].pt + 2;
-                // X0011 and X1011
-                qu.key = qu.key + bd[bd_idx[0]];
-                que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[0]);
-                que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-                enq_c2_n(&qu, que);
-                enq_c2_n(&qu2, que);
-                break;
-            case 6:  // X0110 -> enq(X0111)
-            case 12: // X1100 -> enq(X1101)
-            case 14: // X1110 -> enq(10111)
-                qu.key = qu.key + bd[bd_idx[0]];
-                que->details[qu.cursor].sk = que->details[qu.cursor].sk ^ (1 <<  bd_idx[0]);
-                que->details[qu.cursor].pt = que->details[qu.cursor].pt + 1;
-                enq_c2_n(&qu, que);
-                break;
-            case 3:  // X0011
-            case 7:  // X0111
-            case 11: // X1011
-            case 15: // X1111 -> nothing to do
-                break;
-            }
-        }
-        #ifdef SECOND_FILTERING_KNN_BUFFER
-        flush_kNN_buffer(buff);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            data_num[i] = buff->buff[i].data_num;
-        }
-        free_kNN_buffer(buff);
-        #elif defined(SECOND_FILTERING_SELECT)
-        quick_select_k_answer(ans_buff, 0, num_candidates_1st - 1, num_candidates_2nd);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            data_num[i] = ans_buff[i].data_num;
-        }
-        FREE(ans_buff, sizeof(answer_type) * num_candidates_1st);
-        #endif
-        #ifdef SECOND_FILTERING_KNN_BUFFER
-        return num_candidates_2nd;
-        #elif defined(SECOND_FILTERING_SELECT)
-        return num_candidates_2nd;
-        #else
-        return k;
-        #endif
-    #endif
 }
-#else
 
-#ifdef STATIC_DF_WORK
+#else // PARALLEL_ENUM == 0
+
 static interval_list *ivl = NULL;
 static int intial_ivl_size_1st = 0;
 static int intial_ivl_size_2nd = 0;
@@ -523,7 +178,8 @@ void init_space_for_double_filtering(int size_1st, int size_2nd)
         que->details[i].sk = 0;
     }
 }
-#endif
+//#endif
+
 // Double-Filtering（multi-thread）
 // 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
 // 2nd: qpsmap による射影距離を用いる（データの qpsmap 射影像は，ビット列を詰め合わせた圧縮表現を用いる）
@@ -560,355 +216,96 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 	#endif
     struct timespec tp1, tp2, tp3;
 
-    #ifdef USE_INTERVAL
-        clock_gettime(CLOCK_METHOD, &tp1);
-        // Interval list を用いるときは，
-        // ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする． 
-        // まず，filtering_by_sketch_enumeration_hamming_interval を用いて，フィルタリングを行い，interval_list の形式で候補を求める．
-        // 1st filtering の結果を用いて，2nd filtering を qpsmap を用いて行う．
-        #ifndef STATIC_DF_WORK
-        static interval_list *ivl = NULL;
-        if(ivl == NULL) {
-    	    ivl = new_interval_list(nnt, num_candidates_1st);
-        } else if(ivl->size < num_candidates_1st) {
-            realloc_interval_list(ivl, num_candidates_1st);
-        }
+    clock_gettime(CLOCK_METHOD, &tp1);
+    // Interval list を用いるときは，
+    // ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする． 
+    // まず，filtering_by_sketch_enumeration_hamming_interval を用いて，フィルタリングを行い，interval_list の形式で候補を求める．
+    // 1st filtering の結果を用いて，2nd filtering を qpsmap を用いて行う．
+    if(num_candidates_1st > intial_ivl_size_1st) {
+        fprintf(stderr, "too large nc1 = %d > %d\n", num_candidates_1st, intial_ivl_size_1st);
+        exit(1);
+    }
+    ivl->size = num_candidates_1st;
+    static int first = 1;
+    #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
+        if(first) {fprintf(stderr, "FILTERING_BY_SKETCH_ENUMERATION_HAMMING, USE_INTERVAL\n"); first = 0;}
+        int nc = filtering_by_sketch_enumeration_hamming_interval(qs, bucket, ivl, num_candidates_1st);
+        if(nc == 0) {fprintf(stderr, "nc = %d, num_candidates_1st = %d\n", nc, num_candidates_1st); getchar(); }
+    #elif defined(FILTERING_BY_SKETCH_ENUMERATION_C2N)
+        if(first) {fprintf(stderr, "FILTERING_BY_SKETCH_ENUMERATION_C2N, USE_INTERVAL\n"); first = 0;}
+        int nc = filtering_by_sketch_enumeration_c2_n_interval(qs, bucket, que, ivl, num_candidates_1st);
+    #else
+        #error "FILTERING_BY_SKETCH_ENUMERATION_(HAMMING | C2N) should be defined"
+    #endif
+    clock_gettime(CLOCK_METHOD, &tp2);
+
+    int num_data_1st = nc / nt;	// スレッドが 1st filtering で求めるデータ数
+    num_candidates_1st = num_data_1st * nt;     // 1st filtering で求めるデータ数の合計（元の num_candidates_1st がスレッド数で割り切れないときに端数を切り捨てる）
+
+    // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
+    int num_data_2nd = num_candidates_2nd; // スレッドに分けても同じ候補数を選ばせる
+    if(num_data_2nd > intial_ivl_size_2nd) {
+        fprintf(stderr, "too large nc1 = %d > %d\n", num_candidates_1st, intial_ivl_size_1st);
+        exit(1);
+    }
+    for(int t = 0; t < nt; t++) {
+        make_empty_kNN_buffer(buff_p[t]);
+        buff_p[t]->k = num_data_2nd;
+    }
+
+    // 2nd filtering ...
+    #pragma omp parallel
+    {
+        int t = omp_get_thread_num(); // スレッド番号
+        int m = 0; // 列挙したスケッチ数（パターン番号）
+        int k = 0; // 1st filtering で求めたデータ数
+        kNN_buffer *buff = buff_p[t];
+        answer_type *a_buff = ans_buff + t * num_data_2nd;
+
+        #ifndef THREAD_PLUS
+        int tt = t;
+        #elif PARA_ENUM_INF > 0
+        for(int tt = t * (1 << THREAD_PLUS); tt < (t + 1) * (1 << THREAD_PLUS); tt++) 
         #else
-        if(num_candidates_1st > intial_ivl_size_1st) {
-            fprintf(stderr, "too large nc1 = %d > %d\n", num_candidates_1st, intial_ivl_size_1st);
-            exit(1);
-        }
-        ivl->size = num_candidates_1st;
+        int tt = t;
         #endif
-        static int first = 1;
-        #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
-            if(first) {fprintf(stderr, "FILTERING_BY_SKETCH_ENUMERATION_HAMMING, USE_INTERVAL\n"); first = 0;}
-            int nc = filtering_by_sketch_enumeration_hamming_interval(qs, bucket, ivl, num_candidates_1st);
-            if(nc == 0) {fprintf(stderr, "nc = %d, num_candidates_1st = %d\n", nc, num_candidates_1st); getchar(); }
-        #elif defined(FILTERING_BY_SKETCH_ENUMERATION_C2N)
-            if(first) {fprintf(stderr, "FILTERING_BY_SKETCH_ENUMERATION_C2N, USE_INTERVAL\n"); first = 0;}
-            #ifndef STATIC_DF_WORK
-		    static struct_que_c2_n *que = NULL;
-            if(que == NULL) {
-                que = MALLOC(sizeof(struct_que_c2_n));
-                for(int i = 0; i < QSIZE; i += 1024) {
-                    que->element[i].key = 0;
-                    que->details[i].sk = 0;
-                }
-            }
-            #endif
-            int nc = filtering_by_sketch_enumeration_c2_n_interval(qs, bucket, que, ivl, num_candidates_1st);
-        #else
-            #error "FILTERING_BY_SKETCH_ENUMERATION_(HAMMING | C2N) should be defined"
-        #endif
-        clock_gettime(CLOCK_METHOD, &tp2);
-
-        int num_data_1st = nc / nt;	// スレッドが 1st filtering で求めるデータ数
-        num_candidates_1st = num_data_1st * nt;     // 1st filtering で求めるデータ数の合計（元の num_candidates_1st がスレッド数で割り切れないときに端数を切り捨てる）
-
-        #ifdef SECOND_FILTERING_KNN_BUFFER
-           // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
-            int num_data_2nd = num_candidates_2nd; // スレッドに分けても同じ候補数を選ばせる
-            #ifndef STATIC_DF_WORK
-            answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_data_2nd * nt); // 最後に各スレッドが求めてものを一つにまとめて，quick_selectする．
-            kNN_buffer *buff_p[nt]; // kNN_buffer のプール（それぞれのスレッドで用いる）
-            for(int t = 0; t < nt; t++) { buff_p[t] = new_kNN_buffer(num_data_2nd); }
-            #else
-            if(num_data_2nd > intial_ivl_size_2nd) {
-                fprintf(stderr, "too large nc1 = %d > %d\n", num_candidates_1st, intial_ivl_size_1st);
-                exit(1);
-            }
-            for(int t = 0; t < nt; t++) {
-                make_empty_kNN_buffer(buff_p[t]);
-                buff_p[t]->k = num_data_2nd;
-            }
-            #endif
-        #elif defined(SECOND_FILTERING_SELECT)
-            // 1st filtering で求めた num_candidates_1st 個の候補のデータ番号と qpsmap 射影距離の対を配列に格納し，最後に quick_select_k_answer で num_candidates_2nd 個を選択する．
-//fprintf(stderr, "MALLOC for ans_buff: size = %d\n", sizeof(answer_type) * num_candidates_1st * nt);
-            static int allocated_nc1 = 0;
-            static answer_type *ans_buff = NULL;
-            if(allocated_nc1 < num_candidates_1st) {
-                if(ans_buff != NULL) {
-                    FREE(ans_buff, sizeof(answer_type) * allocated_nc1 * nt);
-                }
-                ans_buff = MALLOC(sizeof(answer_type) * num_candidates_1st * nt);
-                allocated_nc1 = num_candidates_1st;
-            }
-//fprintf(stderr, "MALLOC OK\n"); getchar();
-            int k_th[nt];
-        #endif
-
-        // 2nd filtering ...
-        #pragma omp parallel
         {
-            int t = omp_get_thread_num(); // スレッド番号
-            int m = 0; // 列挙したスケッチ数（パターン番号）
-            int k = 0; // 1st filtering で求めたデータ数
-            #ifdef SECOND_FILTERING_KNN_BUFFER
-                kNN_buffer *buff = buff_p[t];
-                answer_type *a_buff = ans_buff + t * num_data_2nd;
-            #elif defined(SECOND_FILTERING_SELECT)
-                answer_type *buff = ans_buff + t * num_candidates_1st;
-            #elif defined(SKETCH_ENUMERATION_ONLY)
-                // 何もしない
-            #else
-                int *buff = data_num + t * num_data_1st;
-            #endif
-
-            #ifndef THREAD_PLUS
-            int tt = t;
-            #elif PARA_ENUM_INF > 0
-            for(int tt = t * (1 << THREAD_PLUS); tt < (t + 1) * (1 << THREAD_PLUS); tt++) 
-            #else
-            int tt = t;
-            #endif
-            {
-                interval *list = ivl->list + tt * ivl->size;
-                int lg = ivl->lg[tt];
-                for(m = 0; m < lg /* && k < num_data_1st * FACTOR_INF3 */; m++) {
-                    int j = list[m].start;
-                    for(int r = 0; r < list[m].run /* && k < num_data_1st * FACTOR_INF3 */; j++, r++, k++) {
-                        // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                        dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                        answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                        #ifdef SECOND_FILTERING_KNN_BUFFER
-                        push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                        #elif defined(SKETCH_ENUMERATION_ONLY)
-                            // 何もしない
-                        #else
-                        buff[k] = ans;
-                        #endif
-                    }
+            interval *list = ivl->list + tt * ivl->size;
+            int lg = ivl->lg[tt];
+            for(m = 0; m < lg /* && k < num_data_1st * FACTOR_INF3 */; m++) {
+                int j = list[m].start;
+                for(int r = 0; r < list[m].run /* && k < num_data_1st * FACTOR_INF3 */; j++, r++, k++) {
+                    // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
+                    dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
+                    answer_type ans = (answer_type){ bucket->idx[j], p_dist };
+                    push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
                 }
             }
-
-            #ifdef SECOND_FILTERING_KNN_BUFFER
-            flush_kNN_buffer(buff);
-            for(int i = 0; i < num_data_2nd; i++) {
-                if(i < buff->num) {
-                    a_buff[i] = buff->buff[i];
-                } else {
-                    a_buff[i] = (answer_type) {0, INT_MAX};
-                }
-            }
-            #elif defined(SECOND_FILTERING_SELECT)
-            k_th[t] = k;
-            #endif
         }
 
-    #else
-        clock_gettime(CLOCK_METHOD, &tp1);
-        #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
-            static sub_dimension *table = NULL;
-            static int table_size = 0;
-            #ifdef ENUM_DIM
-            int enum_dim = ENUM_DIM;
-            #else
-            int enum_dim = PJT_DIM - 19; // ハミング距離順の列挙を求めるための次元数（射影次元より小さくする）
-            #endif
-            if(table == NULL) {
-                table_size = (1 << enum_dim) + nt; // 各スレッド用に最後に空集合を与えるので，nt 個余分に確保
-                table = make_table_for_enumeration_hamming(table_size, enum_dim);
-                rearrange_table(nt, table, table_size);
+        flush_kNN_buffer(buff);
+        for(int i = 0; i < num_data_2nd; i++) {
+            if(i < buff->num) {
+                a_buff[i] = buff->buff[i];
+            } else {
+                a_buff[i] = (answer_type) {0, INT_MAX};
             }
-
-            // tableを用いた列挙では不足するときに，追加のビットパターンを求めるための表
-            static sub_dimension *table_spp = NULL;
-            #ifdef SPP_BIT
-            int spp_bit = SPP_BIT; // 追加のビット数
-            #else
-            int spp_bit = 16; // 追加のビット数
-            #endif
-            static int table_spp_size = 0;
-            if(table_spp == NULL) {
-                table_spp_size = (1 << spp_bit) + 1;
-                table_spp = make_table_for_enumeration_hamming(table_spp_size, spp_bit);
-                fprintf(stderr, "make table for spplementary enumeation: spp_bit = %d, table_spp_size = %d\n", spp_bit, table_spp_size);
-            }
-
-            static int first = 1;
-            if(first) {
-                #ifdef SECOND_FILTERING_SELECT
-                fprintf(stderr, "double-filtering by enum_hamm and qpsmap (%d-thread). using table, quick_select, enum_dim = %d, spp_bit = %d\n", nt, enum_dim, spp_bit);
-                #elif defined(SECOND_FILTERING_KNN_BUFFER)
-                fprintf(stderr, "double-filtering by enum_hamm and qpsmap (%d-thread). using table, kNN_buffer, enum_dim = %d, spp_bit = %d\n", nt, enum_dim, spp_bit);
-                #elif defined(SKETCH_ENUMERATION_ONLY)
-                fprintf(stderr, "double-filtering by enum_hamm and qpsmap (%d-thread). using table, enumeration only, enum_dim = %d, spp_bit = %d\n", nt, enum_dim, spp_bit);
-                #else
-                fprintf(stderr, "double-filtering by enum_hamm and qpsmap (%d-thread). using table, 1st only, enum_dim = %d, spp_bit = %d\n", nt, enum_dim, spp_bit);
-                #endif
-                fprintf(stderr, "QUANTIZE_BIT = %d, TABLE_UNIT = %d\n", QUANTIZE_BIT, TABLE_UNIT);
-                first = 0;
-            }
-
-            int *bd_idx = qs->idx;
-            int *bkt = bucket->bkt;
-
-            int num_data_1st = num_candidates_1st / nt;	// スレッドが 1st filtering で求めるデータ数
-            num_candidates_1st = num_data_1st * nt;     // 1st filtering で求めるデータ数の合計（元の num_candidates_1st がスレッド数で割り切れないときに端数を切り捨てる）
-
-            #ifdef SECOND_FILTERING_KNN_BUFFER
-                // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
-                int num_data_2nd = num_candidates_2nd; // スレッドに分けても同じ候補数を選ばせる
-                answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_data_2nd * nt); // 最後に各スレッドが求めてものを一つにまとめて，quick_selectする．
-                kNN_buffer *buff_p[nt];
-                for(int t = 0; t < nt; t++) { buff_p[t] = new_kNN_buffer(num_data_2nd); }
-            #elif defined(SECOND_FILTERING_SELECT)
-                // 1st filtering で求めた num_candidates_1st 個の候補のデータ番号と qpsmap 射影距離の対を配列に格納し，最後に quick_select_k_answer で num_candidates_2nd 個を選択する．
-                answer_type *ans_buff = MALLOC(sizeof(answer_type) * num_candidates_1st);
-            #endif
-
-            #pragma omp parallel
-            {
-                int t = omp_get_thread_num(); // スレッド番号
-                int m = 0; // 列挙したスケッチ数（パターン番号）
-                int k = 0; // 1st filtering で求めたデータ数
-                sub_dimension *tbl = table + t * table_size / nt; // スレッドが使用する部分集合の列挙パターン配列
-                sketch_type base_mask = 0, base_mask2 = 0;
-                int n_spp = 1, n_spp2 = 1; // 追加のパターン番号
-                #ifdef SECOND_FILTERING_KNN_BUFFER
-        //        	kNN_buffer *buff = new_kNN_buffer(num_data_2nd);
-                    kNN_buffer *buff = buff_p[t];
-                    answer_type *a_buff = ans_buff + t * num_data_2nd;
-                #elif defined(SECOND_FILTERING_SELECT)
-                    answer_type *buff = ans_buff + t * num_data_1st;
-                #elif defined(SKETCH_ENUMERATION_ONLY)
-                    // 何もしない
-                #else
-                    int *buff = data_num + t * num_data_1st;
-                #endif
-                for(m = 0; k < num_data_1st ; m++) {
-                    sketch_type sk, mask = base_mask;
-                    for(int j = 0; j < tbl[m].num; j++) {
-                        mask |= (1 << bd_idx[(int)tbl[m].dim[j]]);
-                    }
-                    sk = qs->sketch ^ mask;
-                    for(int j = bkt[sk]; j < bkt[sk + 1] && k < num_data_1st; j++, k++) {
-                        #if defined(SECOND_FILTERING_KNN_BUFFER) || defined(SECOND_FILTERING_SELECT)
-                            // ここで，スケッチ順に qpsmap が並んでいるときは，質問と j 番目の qpsmap との部分復元射影距離を求めて
-                            dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                            answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                            #ifdef SECOND_FILTERING_KNN_BUFFER
-                            push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
-                            #elif defined(SKETCH_ENUMERATION_ONLY)
-                                // 何もしない
-                            #else
-                            buff[k] = ans;
-                            #endif
-                        #elif defined(SKETCH_ENUMERATION_ONLY)
-                            // 何もしない
-                        #else
-                            buff[k] = bucket->idx[j];
-                        #endif
-                    }
-                    if(tbl[m + 1].num == 0) { // 用意したパターンがなくなった．
-                        if(table_spp[n_spp].num == 0) { // 追加分のパターンも使い切った．
-                            if(table_spp[n_spp2].num == 0) break; // 2回目の追加分のパターンも使い切った．
-                            n_spp = 0;
-                            n_spp2++;
-                            base_mask2 = 0;
-                            for(int m = 0; m < table_spp[n_spp2].num; m++) {
-                                base_mask2 |= (1 << bd_idx[(int)table_spp[n_spp2].dim[m] + enum_dim + spp_bit]);
-                            }
-                        }
-                        base_mask = base_mask2;
-                        for(int m = 0; m < table_spp[n_spp].num; m++) {
-                            base_mask |= (1 << bd_idx[(int)table_spp[n_spp].dim[m] + enum_dim]);
-                        }
-                        m = -1; // forの再初期化で m++ となって，0になる．
-                        n_spp++;
-                    }
-                }
-                #ifdef SECOND_FILTERING_KNN_BUFFER
-                flush_kNN_buffer(buff);
-                for(int i = 0; i < num_data_2nd; i++) {
-                    a_buff[i] = buff->buff[i];
-                }
-                #endif
-            }
-
-        #else
-            #error "FILTERING_BY_SKETCH_ENUMERATION_C2N WITHOUT_INTERVAL not supported for multi-thread"
-            return num_candidates_1st;
-        #endif
-        clock_gettime(CLOCK_METHOD, &tp2);
-    #endif
-
-    #if defined(USE_INTERVAL) || defined(FILTERING_BY_SKETCH_ENUMERATION_HAMMING)
-    #if defined(SECOND_FILTERING_KNN_BUFFER)
-        #ifndef STATIC_DF_WORK
-        for(int t = 0; t < nt; t++) { free_kNN_buffer(buff_p[t]); }
-        #endif
-        quick_select_k_answer(ans_buff, 0, num_data_2nd * nt - 1, num_candidates_2nd);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            data_num[i] = ans_buff[i].data_num;
         }
-        #ifndef STATIC_DF_WORK
-        FREE(ans_buff, sizeof(answer_type) * num_data_2nd * nt);
-        #endif
-        clock_gettime(CLOCK_METHOD, &tp3);
-        filtering_cost_1st += e_time(&tp1, &tp2);
-        filtering_cost_2nd += e_time(&tp2, &tp3);
-    #elif defined(SECOND_FILTERING_SELECT) && !defined(USE_INTERVAL)
-        quick_select_k_answer(ans_buff, 0, num_candidates_1st - 1, num_candidates_2nd);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            data_num[i] = ans_buff[i].data_num;
-        }
-        FREE(ans_buff, sizeof(answer_type) * num_candidates_1st);
-    #else
-/*
-fprintf(stderr, "before quick_select_k_answer_mt: nt = %d, num_candidates_1st = %d, num_candidates_2nd = %d\n", nt, num_candidates_1st, num_candidates_2nd);
-for(int t = 0; t < nt; t++) {
-    fprintf(stderr, "k_th[%d] = %d", t, k_th[t]);
-    answer_type *list = ans_buff + t * num_candidates_1st;
-    for(int i = 0; i < 5; i++) {
-        fprintf(stderr, ", id = %10d, dist = %5d", list[i].data_num, list[i].dist);
     }
-    fprintf(stderr, "\n");
-}
-*/
-        int selected = quick_select_k_answer_mt(nt, k_th, num_candidates_1st, ans_buff, num_candidates_2nd);
-/*
-fprintf(stderr, "after quick_select_k_answer_mt\n");
-int sel = 0;
-for(int t = 0; t < nt; t++) {
-    fprintf(stderr, "k_th[%d] = %d", t, k_th[t]);
-    sel += k_th[t];
-    answer_type *list = ans_buff + t * num_candidates_1st;
-    for(int i = 0; i < k_th[t]; i++) {
-        fprintf(stderr, ", id = %10d, dist = %5d", list[i].data_num, list[i].dist);
+
+    quick_select_k_answer(ans_buff, 0, num_data_2nd * nt - 1, num_candidates_2nd);
+    for(int i = 0; i < num_candidates_2nd; i++) {
+        data_num[i] = ans_buff[i].data_num;
     }
-    fprintf(stderr, "\n");
-}
-fprintf(stderr, "selected = %d, sel = %d\n", selected, sel); getchar();
-*/
-        int i = 0;
-        nc = 0;
-//fprintf(stderr, "selected = ");
-        for(int t = 0; t < nt; t++) {
-            answer_type *list = ans_buff + t * num_candidates_1st;
-            for(int j = 0; j < k_th[t] && nc < num_candidates_2nd; j++, nc++) {
-//fprintf(stderr, "%12d", list[j].data_num);
-                data_num[i++] = list[j].data_num;
-            }
-        }
-//getchar();
-    #endif
-    #endif
+    clock_gettime(CLOCK_METHOD, &tp3);
+    filtering_cost_1st += e_time(&tp1, &tp2);
+    filtering_cost_2nd += e_time(&tp2, &tp3);
+//    #endif
 
-    #ifdef SECOND_FILTERING_KNN_BUFFER
     return num_candidates_2nd;
-    #elif defined(SECOND_FILTERING_SELECT)
-    return num_candidates_2nd;
-    #else
-    return num_candidates_1st;
-    #endif
 }
 
-
-
-#endif
+#endif // PARALLEL_ENUM
 
 #define NUM_NN 30
 int main(int argc, char *argv[])
@@ -1212,9 +609,7 @@ int main(int argc, char *argv[])
 	init_search_kNN_on_ram(num_top_k);
     #endif
 
-    #ifdef STATIC_DF_WORK
     init_space_for_double_filtering(1000000, 2000);
-    #endif
 
     if(fp_summary != NULL) {
         #ifdef SELF_EVAL
