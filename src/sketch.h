@@ -362,11 +362,7 @@ int filtering_by_sketch_enumeration(struct_query_sketch *qs, struct_bucket *buck
 int filtering_by_sketch_enumeration_interval(struct_query_sketch *qs, struct_bucket *bucket, struct_que *que, interval_list *ivl, int num_candidates);
 int filtering_by_sketch_enumeration_sketch(struct_query_sketch *qs, struct_bucket *bucket, struct_que *que, sketch_type sketch[], int num_candidates);
 int filtering_by_sketch_enumeration_c2_n(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, int data_num[], int num_candidates);
-#if !defined(USE_MU_COMMON) && PARA_ENUM_INF > 0
-int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que[], interval_list *ivl, int num_candidates);
-#else
 int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, interval_list *ivl, int num_candidates);
-#endif
 int filtering_by_sketch_enumeration_c2_n_interval_st(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, interval_list *ivl, int num_candidates);
 dist_type filtering_by_sketch_enumeration_c2_n_score(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, int num_candidates);
 int filtering_by_sketch_enumeration_c2_n_sketch(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, sketch_type sketch[], int num_candidates);

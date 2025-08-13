@@ -284,6 +284,7 @@ elif [ $interval -eq 2 ] ; then
 #    cflags="$cflags -DFACTOR_INF=$sf"
 #    cflags="$cflags -DFACTOR_INF2=$sf2"
 elif [ $interval -eq 3 ] ; then
+:	# NOP
 #    cflags="$cflags -DALTERNATIVE_ENUMERATION"
 #    cflags="$cflags -DALTERNATIVE_5"
 #    cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
@@ -291,15 +292,16 @@ elif [ $interval -eq 3 ] ; then
 #    cflags="$cflags -DUSE_COMPACT_INTERVAL"
 #    cflags="$cflags -DINTERVAL_WITH_RUN"
 #    cflags="$cflags -DINTERVAL_WITH_PRIORITY"
-    cflags="$cflags -DUSE_MU_COMMON"
+#    cflags="$cflags -DUSE_MU_COMMON"
 #    cflags="$cflags -DFACTOR_INF=$sf"
 #    cflags="$cflags -DFACTOR_INF2=$sf2"
 elif [ $interval -eq 4 ] ; then
+:	# NOP
 #   cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
 #    cflags="$cflags -DUSE_INTERVAL"
 #    cflags="$cflags -DINTERVAL_WITH_RUN"
 #    cflags="$cflags -DINTERVAL_WITH_PRIORITY"
-    cflags="$cflags -DUSE_MU_COMMON"
+#    cflags="$cflags -DUSE_MU_COMMON"
 #    cflags="$cflags -DFACTOR_INF=$sf"
 #    cflags="$cflags -DFACTOR_INF2=$sf2"
 fi
