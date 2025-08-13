@@ -267,15 +267,15 @@ if [ $interval -eq 1 ] ; then
 #    cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
 #    cflags="$cflags -DUSE_INTERVAL"
 #    cflags="$cflags -DINTERVAL_WITH_RUN"
-    cflags="$cflags -DINTERVAL_WITH_PRIORITY"
+#    cflags="$cflags -DINTERVAL_WITH_PRIORITY"
     cflags="$cflags -DLOOP_CONTROL_BY_NUM_SKETCHES"
     if [ $nt -ne 1 ] ; then
         cflags="$cflags -DSELECTION_BY_MULTI_THREAD"
     fi
 #    cflags="$cflags -DFACTOR_INF=$sf"
 #    cflags="$cflags -DFACTOR_INF2=$sf2"
-#elif [ $interval -eq 2 ] ; then
-
+elif [ $interval -eq 2 ] ; then
+:	# NOP
 #    cflags="$cflags -DSELECT_BY_PRIORITY_AFTER_ENUMERATION"
 #    cflags="$cflags -DUSE_INTERVAL"
 #    cflags="$cflags -DINTERVAL_WITH_RUN"

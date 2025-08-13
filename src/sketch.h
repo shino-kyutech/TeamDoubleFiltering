@@ -370,21 +370,9 @@ int filtering_by_sketch_enumeration_c2_n_interval(struct_query_sketch *qs, struc
 int filtering_by_sketch_enumeration_c2_n_interval_st(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, interval_list *ivl, int num_candidates);
 dist_type filtering_by_sketch_enumeration_c2_n_score(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, int num_candidates);
 int filtering_by_sketch_enumeration_c2_n_sketch(struct_query_sketch *qs, struct_bucket *bucket, struct_que_c2_n *que, sketch_type sketch[], int num_candidates);
-#ifdef NEW_INF
+
 int filtering_by_sketch_enumeration_inf(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates);
 int filtering_by_sketch_enumeration_inf_interval(struct_query_sketch *qs, struct_bucket *bucket, interval_list *ivl, int num_candidates);
-#else
-int filtering_by_sketch_enumeration_inf(struct_query_sketch *qs, struct_bucket *bucket, sketch_type sketch[], int num_candidates);
-//int filtering_by_sketch_enumeration_inf_serial(struct_query_sketch *qs, struct_bucket *bucket, sketch_type sketch[], int num_candidates);
-int filtering_by_sketch_enumeration_inf_data(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates);
-int filtering_by_sketch_enumeration_inf_data_select(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates);
-int filtering_by_sketch_enumeration_inf_only(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates);
-int filtering_by_sketch_enumeration_inf_only_2(struct_query_sketch *qs, struct_bucket *bucket, int *data_num_thread[], int num_data_thread[], int num_candidates);
-int filtering_by_sketch_enumeration_inf_only_3(struct_query_sketch *qs, struct_bucket *bucket, int *data_num_thread[], int num_data_thread[], int num_candidates);
-int filtering_by_sketch_enumeration_inf_only_4(struct_query_sketch *qs, struct_bucket *bucket, int *data_num_thread[], int num_data_thread[], int num_candidates);
-int filtering_by_sketch_enumeration_inf_data_select_once(struct_query_sketch *qs, struct_bucket *bucket, int data_num[], int num_candidates);
-int filtering_by_sketch_enumeration_inf_only_sketch(struct_query_sketch *qs, struct_bucket *bucket, sketch_type sketch[], int num_candidates);
-#endif
 #endif
 
 int comp_sketch(sketch_type a, sketch_type b);
