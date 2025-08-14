@@ -5819,7 +5819,6 @@ dist_type part_dist_pivot_L2_22(ftr_type b, int dim_start, int dim)
 
 // PUBMED23 のときは，answer の比較に，data_numも用いる．
 int find_pivot_answer(answer_type ans[], int i, int j)
-
 {
 // 初めに 5 回だけピボット候補をランダムに選ぶ．
 // i 番目のデータ ans[i].dist と k（ただし，k = i + 1, ... , j）番目のデータ ans[k].dist を比較し，
@@ -5840,8 +5839,6 @@ int find_pivot_answer(answer_type ans[], int i, int j)
 		}
 		#ifdef PUBMED23
 		else {
-//			fprintf(stderr, "find_pivot_answer at tie\n");
-//			fprintf(stderr, "ans[%d].data_num = %d, ans[%d].data_num = %d\n", i, ans[i].data_num, k, ans[k].data_num); 
 			return (ans[i].data_num > ans[k].data_num ? i : k);
 		}
 		#endif
@@ -5849,9 +5846,11 @@ int find_pivot_answer(answer_type ans[], int i, int j)
 	return -1;
 }
 
-
 #ifdef PUBMED23
 int partition_by_pivot_answer(answer_type ans[], int i, int j, answer_type piv)
+#else
+int partition_by_pivot_answer(answer_type ans[], int i, int j, dist_type piv)
+#endif
 // ans[i], ... , ans[j] をそれらの dist と piv との大小によって分け， 
 // piv より小さいものが ans[i], ... , ans[k-1] に，   
 // そうでないものが ans[k], ... , ans[j] に来るようにする. 
@@ -5861,13 +5860,13 @@ int partition_by_pivot_answer(answer_type ans[], int i, int j, answer_type piv)
    answer_type temp;
    left = i;   right = j;
    do {
-//    while(ans[left].dist < piv) left++;
-//fprintf(stderr, "comp_answer = ");
-//int chk = comp_answer(&ans[left], &piv);
-//fprintf(stderr, "%d\n", chk);
-      while(comp_answer(&ans[left], &piv) < 0) left++;
-//      while(ans[right].dist >= piv) right--;
-      while(comp_answer(&ans[right], &piv) >= 0) right--;
+		#ifdef PUBMED23
+	    	while(comp_answer(&ans[left], &piv) < 0) left++;
+    		while(comp_answer(&ans[right], &piv) >= 0) right--;
+		#else
+			while(ans[left].dist < piv) left++;
+			while(ans[right].dist >= piv) right--;
+		#endif
 	  if (left < right) { 
          temp = ans[left];
          ans[left] = ans[right];
@@ -5876,79 +5875,32 @@ int partition_by_pivot_answer(answer_type ans[], int i, int j, answer_type piv)
    } while(left <= right);
    return left;
 }
-#else
 
-int partition_by_pivot_answer(answer_type ans[], int i, int j, dist_type piv)
-// ans[i], ... , ans[j] をそれらの dist と piv との大小によって分け， 
-// piv より小さいものが ans[i], ... , ans[k-1] に，   
-// そうでないものが ans[k], ... , ans[j] に来るようにする. 
-// 右側のリストの先頭の位置(k)を返す. 
-{
-   int left, right;
-   answer_type temp;
-   left = i;   right = j;
-   do {
-      while(ans[left].dist < piv) left++;
-      while(ans[right].dist >= piv) right--;
-      if (left < right) { 
-         temp = ans[left];
-         ans[left] = ans[right];
-         ans[right] = temp;
-      }
-   } while(left <= right);
-   return left;
-}
-#endif
-
-
-#ifdef PUBMED23
 void quick_sort_answer(answer_type ans[], int i, int j)
 {
 	int pivotindex, k;
 	pivotindex = find_pivot_answer(ans, i, j);
 	if (pivotindex >= 0) {
+		#ifdef PUBMED23
 		k = partition_by_pivot_answer(ans, i, j, ans[pivotindex]);
-		quick_sort_answer(ans, i, k - 1);
-		quick_sort_answer(ans, k, j);
-	}
-}
-#else
-
-void quick_sort_answer(answer_type ans[], int i, int j)
-{
-	int pivotindex, k;
-	pivotindex = find_pivot_answer(ans, i, j);
-	if (pivotindex >= 0) {
+		#else
 		k = partition_by_pivot_answer(ans, i, j, ans[pivotindex].dist);
+		#endif
 		quick_sort_answer(ans, i, k - 1);
 		quick_sort_answer(ans, k, j);
 	}
 }
-#endif
 
-
-#ifdef PUBMED23
 void quick_select_k_r_answer(answer_type ans[], int i, int j, int k)
 {
 	int pivotindex, m;
 	pivotindex = find_pivot_answer(ans, i, j);
 	if (pivotindex >= 0) {
+		#ifdef PUBMED23
 		m = partition_by_pivot_answer(ans, i, j, ans[pivotindex]);
-		if(k < m) {
-			quick_select_k_r_answer(ans, i, m - 1, k);
-		} else if(k > m) {
-			quick_select_k_r_answer(ans, m, j, k);
-		}
-	}
-}
-#else
-
-void quick_select_k_r_answer(answer_type ans[], int i, int j, int k)
-{
-	int pivotindex, m;
-	pivotindex = find_pivot_answer(ans, i, j);
-	if (pivotindex >= 0) {
+		#else
 		m = partition_by_pivot_answer(ans, i, j, ans[pivotindex].dist);
+		#endif
 		if(k < m) {
 			quick_select_k_r_answer(ans, i, m - 1, k);
 		} else if(k > m) {
@@ -5956,15 +5908,16 @@ void quick_select_k_r_answer(answer_type ans[], int i, int j, int k)
 		}
 	}
 }
-#endif
 
-
-#ifdef PUBMED23
 void quick_select_k_answer(answer_type ans[], int i, int j, int k)
 {
 	int pivotindex, m;
 	while((pivotindex = find_pivot_answer(ans, i, j)) >= 0) {
+		#ifdef PUBMED23
 		m = partition_by_pivot_answer(ans, i, j, ans[pivotindex]);
+		#else
+		m = partition_by_pivot_answer(ans, i, j, ans[pivotindex].dist);
+		#endif
 		if(k < m) {
 			j = m - 1;
 		} else if(k > m) {
@@ -5974,23 +5927,6 @@ void quick_select_k_answer(answer_type ans[], int i, int j, int k)
 		}
 	}
 }
-#else
-
-void quick_select_k_answer(answer_type ans[], int i, int j, int k)
-{
-	int pivotindex, m;
-	while((pivotindex = find_pivot_answer(ans, i, j)) >= 0) {
-		m = partition_by_pivot_answer(ans, i, j, ans[pivotindex].dist);
-		if(k < m) {
-			j = m - 1;
-		} else if(k > m) {
-			i = m;
-		} else {
-			break;
-		}
-	}
-}
-#endif
 
 // sketch_with_priority_num の配列を優先度でソートしたり，優先度が上位のものでデータ数の合計が k 以上になる最小個数のスケッチを選択する．
 int find_pivot_sketch_with_priority_num(sketch_with_priority_num buff[], int i, int j)
