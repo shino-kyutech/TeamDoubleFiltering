@@ -132,6 +132,25 @@ void q_psmap(smap_type q_projected, ftr_type ftr, smap_pivot_type *pivot, double
 void q_uchar_psmap(unsigned char q_projected[], ftr_type ftr, smap_pivot_type *pivot, double offset[], double slice[]);
 void psmap2uchar_qpsmap(smap_type sm, unsigned char *uchar_smap, double offset[], double slice[], int range);
 
+// QPSMAP ファイルの先頭
+typedef struct {
+	int smap_dim;			// 射影次元数
+	int quantize_bit;		// 量子化ビット数
+	int num_data;			// データ数
+} qpsmap_header;
+
+// QPSMAP ファイルの構造
+// 先頭は qpsmap_header (int smap_dim, int quantize_bit, int num_data)
+// それに続いて，変換時に必要な offset[smap_dim], slice[smap_dim]
+// それ以降に，QPSMAPのデータを num_data 個格納する
+
+int write_qpsmap(qpsmap_header *hd, double offset[], double slice[], tiny_int *packed_psmap_data, int num, FILE *fp);
+int read_qpsmap(qpsmap_header *hd, double offset[], double slice[], tiny_int *packed_psmap_data, int num, FILE *fp);
+#ifdef QPSMAP_ON_SECONDARY_MEMORY
+int open_qpsmap_file(char *qpsmap_file, double offset[], double slice[]);
+int read_qpsmap_record(int data_num, int num, tiny_int *packed_psmap_data);
+#endif
+
 #ifndef PLUS_HALF
 #define PLUS_HALF 0.5
 #endif

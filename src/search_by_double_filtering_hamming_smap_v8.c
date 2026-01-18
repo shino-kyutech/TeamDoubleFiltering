@@ -1,3 +1,6 @@
+// v8: QPSMAP を別途用意したファイルに置いたまま，全体を読み込まずに，一つずつ読み込んで kNN search (reranking) を行うオプションを追加．
+//     QPSMAP_ON_SECONDARY_MEMORY を定義すると，全体は読み込まないで検索する．
+// v7: QPSMAP を別途用意したファイルから読み込む
 // v6:  v5_2 で使用した部分のみをできるだけ残し，不要部分をある程度削除して，マクロスイッチを減らしたバージョン
 // v5_2: SISAP2025 Indexing Challenge で使用した最終バージョン
 // v5_1: 立ち上がり（最初の質問に対する検索）が遅くなるという問題を解決
@@ -39,6 +42,7 @@
 #include <unistd.h>
 #include <sys/resource.h>
 
+// ここは削除する
 #ifdef UMPACKED_SMAP
 // 非圧縮形式 qpsmap 射影像を用いる. Single-threadのみ
 #error "This verson is not applicable for UMPACKED_SMAP."
@@ -48,9 +52,171 @@
 #endif
 
 double filtering_cost_1st, filtering_cost_2nd; 
-
+int ivl_count; // 1st filtering で求めた候補の区間数（候補数ではない）
 void reset_filtering_cost(void) {
     filtering_cost_1st = filtering_cost_2nd = 0;
+}
+
+// #define QPSMAP_ON_SECONDARY_MEMORY
+
+// /*
+static interval_list *ivl = NULL;
+static int intial_ivl_size_1st = 0;
+static int intial_ivl_size_2nd = 0;
+static struct_que_c2_n *que = NULL;
+static answer_type *ans_buff = NULL;
+static kNN_buffer *buff_p[NUM_THREADS] = {NULL};
+//#if defined(QPSMAP_ON_SECONDARY_MEMORY) && defined(NUM_THREADS) && (NUM_THREADS > 1)
+#if defined(QPSMAP_ON_SECONDARY_MEMORY) // && defined(NUM_THREADS) && (NUM_THREADS > 1)
+// QPSMAP を全部読み込まずに，2次記憶に置いたままにするときで，マルチスレッド処理を行うときは，
+// ある程度シングルスレッドでまとめ読みを行ってバッファに入れてから処理する
+// シングルスレッドでは，この必要はないと思うが，使ってみよう．
+#ifndef QPSMAP_BUFFER_SIZE
+#define QPSMAP_BUFFER_SIZE 100
+#endif
+
+typedef struct {
+    int num;            // バッファに読込まれているデータ数
+//  int done;           // 2次フィルタリングでは，毎回すべてを用いるので不要．kNN検索の処理済みデータ数，バッファに読込んだ直後は 0  
+    int interval_num;   // つぎにデータを読込む区間番号
+    int next;           // つぎに読込む処理内の位置（QPSMAP_BUFFER_SIZEまで読んだら，残りは次回のまとめ読みで．
+    tiny_int qpsmap_data[QPSMAP_BUFFER_SIZE][PACKED_QPSMAP_SIZE];
+    int data_num[QPSMAP_BUFFER_SIZE];
+} qpsmap_buffer_t;
+
+static qpsmap_buffer_t *qpsmap_buffer = NULL;
+
+void init_qpsmap_buffer(void) 
+{
+    if(qpsmap_buffer == NULL) {
+        qpsmap_buffer = MALLOC(sizeof(qpsmap_buffer_t) * NUM_THREADS);
+    }
+}
+
+void make_empty_qpsmap_buffer(void)
+{
+    for(int t = 0; t < NUM_THREADS; t++) {
+        qpsmap_buffer[t].num = 0;
+//      qpsmap_buffer[t].done = 0;
+        qpsmap_buffer[t].interval_num = 0;
+        qpsmap_buffer[t].next = 0;
+    }
+}
+
+// ivl に未処理の候補が残っているかどうかを判定する．
+int remain_ivl(void)
+{
+    for(int t = 0; t < NUM_THREADS; t++) {
+        // qpsmap_buffer[t].interval_num は，つぎに処理する区間番号（interalリスト内での番号）
+        // ivl->lg[t] は，スレッドに割り当てられている区間リストの長さ（区間数）
+        if(qpsmap_buffer[t].interval_num < ivl->lg[t]) { // 残りがある．  
+            return 1;
+        }
+    }
+    return 0; // 全スレッドで処理が終わっている．
+}
+
+void read_qpsmap_to_buffer(void) 
+{
+    // 各スレッドのバッファに最大 QPSMAP_BUFFER_SIZE 個のデータを読み込む．並列処理にすると遅くなるので，ここでは，直列処理．
+    // 残っているデータが QPSMAP_BUFFER_SIZE 個未満のときは，残っている分だけ．残りが無ければ何もしない．
+    for(int t = 0; t < NUM_THREADS; t++) {
+        interval *list = ivl->list + t * ivl->size; // 区間リスト（一本のlistをsize個ごとに区切ってそれぞれをスレッドで用いる）
+        int lg = ivl->lg[t];                        // 区間数
+        // スレッド t に割り当てられている区間は，list[0], ... , list[lg - 1]
+        qpsmap_buffer_t *b = qpsmap_buffer + t;     // qpsmapバッファ
+        int m = b->interval_num;                    // 次に読込むデータ番号が入っている区間番号，質問に対する2次フィルタリングが始まったときは，0（先頭）にしておく．
+        // listのm番目の区間で表されるデータ番号は，list[m].start から list[m].run 個, 
+        // つまり，list[m].start, list[m].start + 1, ... , list[m].start + list[m].run - 1
+        // 前回の読込みが，区間の途中までで，残っているときは，つぎの読込みは，b->next番目から
+        // バッファーにQPSMAP_BUFFER_SIZE個のqpsmapを読み込む．
+        b->num = 0;
+//      b->done = 0;
+        while(1) {
+            if(b->num >= QPSMAP_BUFFER_SIZE) { // バッファが満杯
+                break;
+            }
+            if(m >= lg) { // 区間が残っていない
+                break;
+            }
+            int n = list[m].run - b->next; // つぎに読込む区間に残っているデータ数
+            if(n <= 0) { // 現在の区間は読み切っているので，次の区間に
+                m++; 
+                b->interval_num = m;
+                b->next = 0;
+                continue;
+            }
+            if(b->num + n > QPSMAP_BUFFER_SIZE) {   // 区間に残っているデータを全部読み込むとバッファがあふれる
+                n = QPSMAP_BUFFER_SIZE - b->num;    // 丁度いっぱいになるだけ読み込む．
+            }
+            // n 個のデータを読み込む．その先頭は，スケッチ順で list[m].start + b->next
+            read_qpsmap_record(list[m].start + b->next, n, (tiny_int *)(b->qpsmap_data + b->num));
+            // 読み込んだデータ番号を記録する．
+            for(int i = 0; i < n; i++) {
+                b->data_num[b->num + i] = list[m].start + b->next + i;
+            }
+            b->num += n;
+            b->next += n;
+        }
+    }
+}
+#endif
+
+// size_1st = 1次フィルタリングの候補リストの大きさ（区間数）の最大値（interval_list の大きさ）
+// size_2nd = 2次フィルタリンツが求める候補数の最大値（kNN_bufferの大きさ）
+void init_space_for_double_filtering(int size_1st, int size_2nd)
+{
+//  int nnt = (1 << PARA_ENUM_INF); // 分割数（THREAD_PLUS > 0 のとき，nt * (1 << THREAD_PLUS)
+    if(ivl != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: ivl != NULL\n");
+        exit(1);
+    }
+    if(ans_buff != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: ans_buff[0] != NULL\n");
+        exit(1);
+    }
+    if(buff_p[0] != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: buff_p[0] != NULL\n");
+        exit(1);
+    }
+    if(que != NULL) {
+        fprintf(stderr, "init_space_for_double_filtering error: que != NULL\n");
+        exit(1);
+    }
+    ivl = new_interval_list(NUM_THREADS, size_1st);
+    ivl->lg[0] = 0;
+    ivl->list[0].start = 0;
+    intial_ivl_size_1st = size_1st;
+    intial_ivl_size_2nd = size_2nd;
+    for(int t = 0; t < NUM_THREADS; t++) {
+        buff_p[t] = new_kNN_buffer(size_2nd);
+        buff_p[t]->buff[0].data_num = 0;
+    }
+    ans_buff = MALLOC(sizeof(answer_type) * size_2nd * NUM_THREADS);
+    ans_buff[0].data_num = 0;
+    fprintf(stderr, "MALLOC QUE: size = %lu\n", sizeof(struct_que_c2_n));
+    use_system("VmSize");
+    que = MALLOC(sizeof(struct_que_c2_n));
+    fprintf(stderr, "MALLOC QUE: OK\n");
+    use_system("VmSize");
+    for(int i = 0; i < QSIZE; i += 1024) {
+        que->element[i].key = 0;
+        que->details[i].sk = 0;
+    }
+//    #if defined(QPSMAP_ON_SECONDARY_MEMORY) && defined(NUM_THREADS) && (NUM_THREADS > 1)
+//    packed_qpsmap_data = MALLOC(sizeof(*qpsmap_buffer) * NUM_THREADS);
+//
+//    #endif
+}
+//#endif
+// */
+
+static void count_ivl(void) 
+{
+    ivl_count = 0;
+    for(int t = 0; t < ivl->nt; t++) {
+        ivl_count += ivl->lg[t];
+    }
 }
 
 // qpsmap 射影像は圧縮したままで，表関数は圧縮用を用いる．
@@ -66,75 +232,118 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 	unsigned int table_for_packed[][256], 
     #endif
 	struct_bucket *bucket, 
-	tiny_int packed_qpsmap_data[][PACKED_QPSMAP_SIZE], 
+	tiny_int packed_qpsmap_data[][PACKED_QPSMAP_SIZE],          // QPSMAP_ON_SECONDARY_MEMORY のときは，NULL
 	int data_num[], int num_candidates_1st, int num_candidates_2nd)
 {
+    #ifdef QPSMAP_ON_SECONDARY_MEMORY
+    tiny_int packed_qpsmap_record[PACKED_QPSMAP_SIZE];
+    #endif
     struct timespec tp1, tp2, tp3;
-        clock_gettime(CLOCK_METHOD, &tp1);
-        // Interval list を用いるときは，
-        // ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする． 
-        // まず，filtering_by_sketch_enumeration_hamming_interval を用いて，フィルタリングを行い，interval_list の形式で候補を求める．
-        // 1st filtering の結果を用いて，2nd filtering を qpsmap を用いて行う．
-        int nt = 1; // single-thread
-    	static interval_list *ivl = NULL;
-        if(ivl == NULL) {
-            int nnt = nt;
-            #ifdef THREAD_PLUS
-            nnt *= (1 << THREAD_PLUS);
-            #endif
-    	    ivl = new_interval_list(nnt, num_candidates_1st);            
-        } else if(ivl->size < num_candidates_1st) {
-            realloc_interval_list(ivl, num_candidates_1st);
-        }
-        #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
-        int nc = filtering_by_sketch_enumeration_hamming_interval(qs, bucket, ivl, num_candidates_1st);
-        #elif defined(FILTERING_BY_SKETCH_ENUMERATION_C2N)
-		static struct_que_c2_n *que = NULL;
-        if(que == NULL) {
-            que = MALLOC(sizeof(struct_que_c2_n));
-            for(int i = 0; i < QSIZE; i += 1024) {
-                que->element[i].key = 0;
-                que->details[i].sk = 0;
-            }
-        }
-        int nc = filtering_by_sketch_enumeration_c2_n_interval(qs, bucket, que, ivl, num_candidates_1st);
-        #else
-        #error "FILTERING_BY_SKETCH_ENUMERATION_(HAMMING | C2N) should be defined"
+    clock_gettime(CLOCK_METHOD, &tp1);
+    // Interval list を用いるときは，
+    // ともに INTERVAL_WITH_RUN, INTERVAL_WITH_PRIORITY, LOOP_CONTROL_BY_NUM_SKETCHESが定義されていることを前提とする． 
+    // まず，filtering_by_sketch_enumeration_hamming_interval を用いて，フィルタリングを行い，interval_list の形式で候補を求める．
+    // 1st filtering の結果を用いて，2nd filtering を qpsmap を用いて行う．
+    // int nt = 1; // single-thread
+/*
+    static interval_list *ivl = NULL;
+    if(ivl == NULL) {
+        int nnt = nt;
+        #ifdef THREAD_PLUS
+        nnt *= (1 << THREAD_PLUS);
         #endif
-        clock_gettime(CLOCK_METHOD, &tp2);
+        ivl = new_interval_list(nnt, num_candidates_1st);            
+    } else if(ivl->size < num_candidates_1st) {
+        fprintf(stderr, "realloc_interval_list: ivl->size = %d, nc1 = %d\n", ivl->size, num_candidates_1st);
+        realloc_interval_list(ivl, num_candidates_1st);
+        fprintf(stderr, "realloc_interval_list: OK\n");
+    }
+*/
+    #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING
+//        int nc = filtering_by_sketch_enumeration_hamming_interval(qs, bucket, ivl, num_candidates_1st);
+        filtering_by_sketch_enumeration_hamming_interval(qs, bucket, ivl, num_candidates_1st);
+    #elif defined(FILTERING_BY_SKETCH_ENUMERATION_C2N)
+/*
+    static struct_que_c2_n *que = NULL;
+    if(que == NULL) {
+        que = MALLOC(sizeof(struct_que_c2_n));
+        for(int i = 0; i < QSIZE; i += 1024) {
+            que->element[i].key = 0;
+            que->details[i].sk = 0;
+        }
+    }
+*/
+//        int nc = filtering_by_sketch_enumeration_c2_n_interval(qs, bucket, que, ivl, num_candidates_1st);
+        filtering_by_sketch_enumeration_c2_n_interval(qs, bucket, que, ivl, num_candidates_1st);
+    #else
+    #error "FILTERING_BY_SKETCH_ENUMERATION_(HAMMING | C2N) should be defined"
+    #endif
+    clock_gettime(CLOCK_METHOD, &tp2);
 
-        kNN_buffer *buff = new_kNN_buffer(num_candidates_2nd);
+    kNN_buffer *buff = new_kNN_buffer(num_candidates_2nd);
+    int k = 0;
 
-        int k = 0;
-        for(int t = 0; t < ivl->nt; t++) {
-            interval *list = ivl->list + t * ivl->size;
-            int lg = ivl->lg[t];
-            for(int n = 0; n < lg /* && k < num_candidates_1st */; n++) {
-                int j = list[n].start;
-                for(int r = 0; r < list[n].run /* && k < num_candidates_1st */; j++, r++, k++) {
-                    // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
-                    dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
-                    answer_type ans = (answer_type){ bucket->idx[j], p_dist };
-                    push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
+    #ifndef QPSMAP_BUFFER_SIZE
+    for(int t = 0; t < ivl->nt; t++) {
+        interval *list = ivl->list + t * ivl->size;
+        int lg = ivl->lg[t];
+        for(int n = 0; n < lg /* && k < num_candidates_1st */; n++) {
+            int j = list[n].start;
+            for(int r = 0; r < list[n].run /* && k < num_candidates_1st */; j++, r++, k++) {
+                // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
+                #ifdef QPSMAP_ON_SECONDARY_MEMORY
+                if(!read_qpsmap_record(j, 1, packed_qpsmap_record)) {
+                    exit(1);
                 }
+                dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_record);
+                #else
+                dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
+                #endif
+                answer_type ans = (answer_type){ bucket->idx[j], p_dist };
+                push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
             }
         }
+    }
+    #else
 
-        flush_kNN_buffer(buff);
-        for(int i = 0; i < num_candidates_2nd; i++) {
-            data_num[i] = buff->buff[i].data_num;
+    init_qpsmap_buffer();
+    make_empty_qpsmap_buffer();
+
+    while(remain_ivl()) {
+        // qpsmap_buffer に候補データを読み込む
+        read_qpsmap_to_buffer();
+        // バッファに読み込んだ候補について，ｋNN選択をする．
+        qpsmap_buffer_t *b = qpsmap_buffer;     // qpsmapバッファ
+        for(int m = 0; m < b->num; m++, k++) {
+            dist_type p_dist = projected_dist_packed_table(table_for_packed, b->qpsmap_data[m]);
+            answer_type ans = (answer_type){ bucket->idx[b->data_num[m]], p_dist };
+            push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
         }
-        free_kNN_buffer(buff);
+    }
 
-        clock_gettime(CLOCK_METHOD, &tp3);
-        filtering_cost_1st += e_time(&tp1, &tp2);
-        filtering_cost_2nd += e_time(&tp2, &tp3);
-        
-        return k;
+    flush_kNN_buffer(buff);
+
+    #endif
+
+    flush_kNN_buffer(buff);
+    for(int i = 0; i < num_candidates_2nd; i++) {
+        data_num[i] = buff->buff[i].data_num;
+    }
+    free_kNN_buffer(buff);
+
+    clock_gettime(CLOCK_METHOD, &tp3);
+    filtering_cost_1st += e_time(&tp1, &tp2);
+    filtering_cost_2nd += e_time(&tp2, &tp3);
+
+    //#ifdef LOG_IVL_COUNT
+    count_ivl();    
+    //#endif
+
+    return k;
 }
 
 #else // PARALLEL_ENUM == 0
-
+/*
 static interval_list *ivl = NULL;
 static int intial_ivl_size_1st = 0;
 static int intial_ivl_size_2nd = 0;
@@ -174,13 +383,18 @@ void init_space_for_double_filtering(int size_1st, int size_2nd)
     }
     ans_buff = MALLOC(sizeof(answer_type) * size_2nd * NUM_THREADS);
     ans_buff[0].data_num = 0;
+    fprintf(stderr, "MALLOC QUE: size = %lu\n", sizeof(struct_que_c2_n));
+    use_system("VmSize");
     que = MALLOC(sizeof(struct_que_c2_n));
+    fprintf(stderr, "MALLOC QUE: OK\n");
+    use_system("VmSize");
     for(int i = 0; i < QSIZE; i += 1024) {
         que->element[i].key = 0;
         que->details[i].sk = 0;
     }
 }
 //#endif
+*/
 
 // Double-Filtering（multi-thread）
 // 1st: スケッチ列挙(Hamming)によるフィルタリング（バケット（配列 idx と bkt）利用）（部分集合列挙の表を利用する）
@@ -193,7 +407,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 	unsigned int table_for_packed[][256], 
     #endif
 	struct_bucket *bucket, 
-	tiny_int packed_qpsmap_data[][PACKED_QPSMAP_SIZE], 
+	tiny_int packed_qpsmap_data[][PACKED_QPSMAP_SIZE],          // QPSMAP_ON_SECONDARY_MEMORY のときは，NULL 
 	int data_num[], int num_candidates_1st, int num_candidates_2nd)
 {
 	int n = PARALLEL_ENUM;
@@ -216,6 +430,11 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 	#ifdef _OPENMP
 	omp_set_num_threads(nt);
 	#endif
+
+    #ifdef QPSMAP_ON_SECONDARY_MEMORY
+    tiny_int packed_qpsmap_record[PACKED_QPSMAP_SIZE];
+    #endif
+
     struct timespec tp1, tp2, tp3;
 
     clock_gettime(CLOCK_METHOD, &tp1);
@@ -247,7 +466,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
     // 2nd filtering を個々のスレッドで kNN_buffer 法で行う
     int num_data_2nd = num_candidates_2nd; // スレッドに分けても同じ候補数を選ばせる
     if(num_data_2nd > intial_ivl_size_2nd) {
-        fprintf(stderr, "too large nc1 = %d > %d\n", num_candidates_1st, intial_ivl_size_1st);
+        fprintf(stderr, "too large nc2 = %d > %d\n", num_candidates_2nd, intial_ivl_size_2nd);
         exit(1);
     }
     for(int t = 0; t < nt; t++) {
@@ -256,6 +475,45 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
     }
 
     // 2nd filtering ...
+    #ifdef QPSMAP_ON_SECONDARY_MEMORY
+
+    init_qpsmap_buffer();
+    make_empty_qpsmap_buffer();
+
+    while(remain_ivl()) {
+        // qpsmap_buffer に候補データを読み込む
+        read_qpsmap_to_buffer();
+        // バッファに読み込んだ候補について，ｋNN選択をする．
+        #pragma omp parallel
+        {
+            int t = omp_get_thread_num(); // スレッド番号
+            kNN_buffer *buff = buff_p[t];
+            qpsmap_buffer_t *b = qpsmap_buffer + t;     // qpsmapバッファ
+
+            // （注意）THREAD_PLUS には未対応
+            for(int m = 0; m < b->num; m++) {
+                dist_type p_dist = projected_dist_packed_table(table_for_packed, b->qpsmap_data[m]);
+                answer_type ans = (answer_type){ bucket->idx[b->data_num[m]], p_dist };
+                push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
+            }
+        }
+    }
+
+    #pragma omp parallel
+    {
+        int t = omp_get_thread_num(); // スレッド番号
+        kNN_buffer *buff = buff_p[t];
+        answer_type *a_buff = ans_buff + t * num_data_2nd;
+        flush_kNN_buffer(buff);
+        for(int i = 0; i < num_data_2nd; i++) {
+            if(i < buff->num) {
+                a_buff[i] = buff->buff[i];
+            } else {
+                a_buff[i] = (answer_type) {0, INT_MAX};
+            }
+        }
+    }
+    #else
     #pragma omp parallel
     {
         int t = omp_get_thread_num(); // スレッド番号
@@ -278,7 +536,15 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
                 int j = list[m].start;
                 for(int r = 0; r < list[m].run /* && k < num_data_1st * FACTOR_INF3 */; j++, r++, k++) {
                     // ここで，スケッチ順に qpsmap が並んでいるので，質問と j 番目の qpsmap との部分復元射影距離を求める．
+                    #ifdef QPSMAP_ON_SECONDARY_MEMORY
+                    if(!read_qpsmap_record(j, packed_qpsmap_record)) {
+                        exit(1);
+                    }
+                    dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_record);
+                    #else
                     dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
+                    #endif
+                    //dist_type p_dist = projected_dist_packed_table(table_for_packed, packed_qpsmap_data[j]);
                     answer_type ans = (answer_type){ bucket->idx[j], p_dist };
                     push_kNN_buffer(&ans, buff); // 元の順番でのデータ番号と射影距離の対を kNN_buffer に push
                 }
@@ -294,6 +560,7 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
             }
         }
     }
+    #endif
 
     quick_select_k_answer(ans_buff, 0, num_data_2nd * nt - 1, num_candidates_2nd);
     for(int i = 0; i < num_candidates_2nd; i++) {
@@ -303,6 +570,9 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
     filtering_cost_1st += e_time(&tp1, &tp2);
     filtering_cost_2nd += e_time(&tp2, &tp3);
 //    #endif
+    //#ifdef LOG_IVL_COUNT
+    count_ivl();    
+    //#endif
 
     return num_candidates_2nd;
 }
@@ -317,6 +587,7 @@ int main(int argc, char *argv[])
 	char *pivot_file = PIVOT_FILE;
 	char *smap_pivot_file = SMAP_PIVOT_FILE;
 	char *bucket_filename = BUCKET_FILE;
+	char *qpsmap_file = QPSMAP_FILE;
 	char *qr_file[] = {QUERY_FILE, QUERY_2ND_FILE, QUERY_3RD_FILE};
     #ifdef SELF_EVAL
 	char *an_file[] = {ANSWER_FILE, ANSWER_2ND_FILE, ANSWER_3RD_FILE};
@@ -458,19 +729,53 @@ int main(int argc, char *argv[])
 		#endif
 	#endif
 
-    // 2nd filtering で用いる qpsmap のためのパラメタを準備する． 
-    double ave[SMAP_DIM], stdev[SMAP_DIM], offset[SMAP_DIM], slice[SMAP_DIM];
-    compute_parmeters_for_qpsmap(smap_pivot, ds_query[0], ave, stdev, offset, slice);
-
+    #ifdef QPSMAP_ON_SECONDARY_MEMORY
+    // データの圧縮表現のqpsmapは，2次記憶に置いたままで，2nd filtering を行う．
+    tiny_int (*packed_qpsmap_data)[PACKED_QPSMAP_SIZE] = NULL; 
+    #else
     // データを圧縮表現のqpsmapとして求めておく．ただし，1st filtering で用いるスケッチ順にソートしておく．
+	fprintf(stderr, "before malloc packed quantized images of data.\n");
+	use_system("VmSize");
     tiny_int (*packed_qpsmap_data)[PACKED_QPSMAP_SIZE]; // 圧縮形式の量子化射影像はデータのみ．質問は量子化していない射影像だけを使用する．
     packed_qpsmap_data = MALLOC(sizeof(tiny_int) * PACKED_QPSMAP_SIZE * num_data);
 	fprintf(stderr, "malloc packed quantized images of data OK.\n");
 	use_system("VmSize");
+    #endif
 
-	int *data_num_candidates = MALLOC(sizeof(int) * num_data); // double-filtering で求めた候補データのデータ番号を格納する配列
-	int *data_num_org = MALLOC(sizeof(int) * num_data); // データ番号をそのまま順番に格納する配列（データをファイルから読み込むときに使用する．
+    double offset[SMAP_DIM], slice[SMAP_DIM]; // 2nd filtering で用いる qpsmap のためのパラメタ
+    #ifdef QPSMAP_ON_SECONDARY_MEMORY
+    // このときは，qpsmap_fileのためのFILEやqpsmap_headerは，smap.c内の外部変数にしておく（将来は，書き換えた方がよいかも）．
+    if(!open_qpsmap_file(qpsmap_file, offset, slice)) {
+        fprintf(stderr, "cannot open qpsmap file = %s\n", qpsmap_file);
+        return -1;
+    }
+    #else
+    qpsmap_header qpsmap_hd;
+    FILE *fp_qpsmap = fopen(qpsmap_file, "r");
+    if(!fp_qpsmap) {
+        fprintf(stderr, "cannot open qpsmap file = %s\n", qpsmap_file);
+        return -1;
+    }
+    if(!read_qpsmap(&qpsmap_hd, offset, slice, (tiny_int *)packed_qpsmap_data, num_data, fp_qpsmap)) {
+        return -1;
+    }
+    #endif
+
+#ifndef MAX_NUM_CANDIDATES_1ST
+#define MAX_NUM_CANDIDATES_1ST 4000000
+#endif
+
+#ifndef MAX_NUM_CANDIDATES_2ND
+#define MAX_NUM_CANDIDATES_2ND 3000
+#endif
+
+use_system("VmSize");
 	fprintf(stderr, "malloc data_num_candidates and data_num_org OK: num_data = %d.\n", num_data);
+	int *data_num_candidates = MALLOC(sizeof(int) * MAX_NUM_CANDIDATES_1ST); // double-filtering で求めた候補データのデータ番号を格納する配列
+    #ifdef FTR_ON_MAIN_MEMORY
+	int *data_num_org = MALLOC(sizeof(int) * num_data); // データ番号をそのまま順番に格納する配列（データをファイルから読み込むときに使用する．
+//	fprintf(stderr, "malloc data_num_candidates and data_num_org OK: num_data = %d.\n", num_data);
+    #endif
 	use_system("VmSize");
 
     #ifdef FTR_ON_MAIN_MEMORY
@@ -479,15 +784,17 @@ int main(int argc, char *argv[])
 	use_system("VmSize");
     #endif
 
-    fprintf(stderr, "make packed quantized images of data ... \n");
-    // スケッチ順に特徴データを読み込むと，ランダムアクセス的になって遅くなるかもしれないので，
 	// いったん，元の順序のままで読み込んで，圧縮形式のSMAPに変換して，その後で並べ替える．
+    #ifdef FTR_ON_MAIN_MEMORY
     for(int i = 0; i < num_data; i++) { data_num_org[i] = i; } // 特徴データを元の順序で読み込むためのデータ番号の配列としても使用する．
-    for(int i = 0; i < num_data; i++) { data_num_candidates[i] = i; } // 配列をRAMに置くためのダミーアクセス．
+    #endif
+    for(int i = 0; i < MAX_NUM_CANDIDATES_1ST; i++) { data_num_candidates[i] = i; } // 配列をRAMに置くためのダミーアクセス．
 
     struct timespec tread1, tread2;
     clock_gettime(CLOCK_METHOD, &tread1);
 
+    #ifdef FTR_ON_MAIN_MEMORY
+    // 特徴データをRAMに読み込む
     #ifdef _OPENMP
     omp_set_num_threads(NUM_THREADS_PREPERATION);
     #pragma omp parallel for
@@ -495,7 +802,7 @@ int main(int argc, char *argv[])
     for(int i = 0; i < num_data; i++) {
         // ここは，マルチスレッドで並列化した方がよいかも．
         // ある程度まとめて（シングルスレッドで）連続に読み込んでから，並列処理する．（未実装11/19時点）
-        unsigned char quantized_projected_data[SMAP_DIM]; // 非圧縮形式のデータのqpsmap（作業用：つぎつぎに圧縮形式に変換するので，1個分のみで，ループ内の局所変数にする）
+//        unsigned char quantized_projected_data[SMAP_DIM]; // 非圧縮形式のデータのqpsmap（作業用：つぎつぎに圧縮形式に変換するので，1個分のみで，ループ内の局所変数にする）
         #ifndef _OPENMP
  		struct_ftr_id *ftr_id_p = get_next_ftr_id_from_multi_ftr(mf, data_num_org, i, num_data);
         #else
@@ -507,12 +814,6 @@ int main(int argc, char *argv[])
         memcpy(&ftr_id[i], ftr_id_p, sizeof(struct_ftr_id));
         #endif
 
-        q_uchar_psmap(quantized_projected_data, ftr_id_p->ftr, smap_pivot, offset, slice);
-        #ifdef QUANTIZE_MIXED_MOD3
-        char2tiny_mod3(quantized_projected_data, packed_qpsmap_data[i], SMAP_DIM);
-        #else
-        char2tiny(quantized_projected_data, packed_qpsmap_data[i], SMAP_DIM, QUANTIZE_BIT);
-        #endif
         #ifdef _OPENMP
         int nt = omp_get_num_threads();
         int nd = num_data / nt;
@@ -521,11 +822,12 @@ int main(int argc, char *argv[])
         int nd = num_data;
         #endif
         if(t == 0 && (i + 1) % (nd / 100) == 0) {
-            fprintf(stderr, "made packed quantized images of data %4d%%\r", (i + 1) / (nd / 100));
+            fprintf(stderr, "read ftr data %4d%%\r", (i + 1) / (nd / 100));
         }
     }
     clock_gettime(CLOCK_METHOD, &tread2);
     fprintf(stderr, "\ndone: %.4lf (sec)\n", e_time(&tread1, &tread2));
+    #endif 
 
 // 2段階検索で実際に特徴データを2次記憶から読み込んで処理を行う場合は，ランダムアクセスになるので，ブロック読込みは非効率．
 // ブロック読込みをやめるために，block_size = 1 に変更する．（一旦すべてcloseしてから，再度openする方法では，なぜか速度が落ちる）
@@ -537,35 +839,8 @@ int main(int argc, char *argv[])
         dh.mf[t]->data_num = NULL;
 	}
 
-	fprintf(stderr, "sort packed quantized images of data in sketch order ... \n");
-	tiny_int *temp = MALLOC(sizeof(tiny_int) * PACKED_QPSMAP_SIZE);
-	char *done = (char *)calloc(num_data, sizeof(char));
-	for(int i = 0; i < num_data; i++) {
-		if(done[i] || i == bucket_ds->idx[i]) {
-			done[i] = 1;
-			if((i + 1) % (num_data / 100) == 0) {
-				fprintf(stderr, "sorted packed quantized images of data %4d%%\r", (i + 1) / (num_data / 100));
-			}
-			continue;
-		}
-		memcpy(temp, packed_qpsmap_data[i], sizeof(tiny_int) * PACKED_QPSMAP_SIZE);
-		int j;
-		for(j = i; i != bucket_ds->idx[j]; j = bucket_ds->idx[j]) {
-			memcpy(packed_qpsmap_data[j], packed_qpsmap_data[bucket_ds->idx[j]], sizeof(tiny_int) * PACKED_QPSMAP_SIZE); 
-			done[j] = 1;
-		}
-		memcpy(packed_qpsmap_data[j], temp, sizeof(tiny_int) * PACKED_QPSMAP_SIZE);
-		done[j] = 1;
-        if((i + 1) % (num_data / 100) == 0) {
-            fprintf(stderr, "sorted packed quantized images of data %4d%%\r", (i + 1) / (num_data / 100));
-        }
-	}
-
     clock_gettime(CLOCK_METHOD, &tread2);
     fprintf(stderr, "\ndone: %.4lf (sec)\n", e_time(&tread1, &tread2));
-
-	FREE(temp, sizeof(tiny_int) * PACKED_QPSMAP_SIZE);
-	free(done);
 
 	char line[4000], *cmdline, *file_name;
 	FILE *fp2;
@@ -611,7 +886,10 @@ int main(int argc, char *argv[])
 	init_search_kNN_on_ram(num_top_k);
     #endif
 
-    init_space_for_double_filtering(1000000, 2000);
+//#if PARALLEL_ENUM != 0
+    init_space_for_double_filtering(MAX_NUM_CANDIDATES_1ST, MAX_NUM_CANDIDATES_2ND);
+	use_system("VmSize");
+//#endif
 
     if(fp_summary != NULL) {
         #ifdef SELF_EVAL
@@ -621,6 +899,15 @@ int main(int argc, char *argv[])
         #endif
     }
     int trial = 0;
+
+    // NUM_Q が質問ファイルの質問数の10分の1以下のときは，trial が進むたびに，つぎの質問に切り替えていく．
+    // たとえば，num_qr = 1000, NUM_Q = 100 のときは，
+    // trial = 1 => q = 0, ... , 99
+    // trial = 2 => q = 100, ... , 199,
+    // ...
+    // trial = 10 => q = 900, ... , 999
+    // trial = 11 => q = 0, ... , 99
+    int q_1st = 0; // 最初の質問
     while(1) {
         if(fp == stdin) fprintf(stderr, "nc1 ? ");
         cmdline = fgets(line, 900, fp);
@@ -658,6 +945,9 @@ int main(int argc, char *argv[])
             #endif
 		} else if(nc1 == 0) {
             continue;
+        } else if(nc1 > MAX_NUM_CANDIDATES_1ST) {
+            fprintf(stderr, "too large nc1 (%d) > %d\n", nc1, MAX_NUM_CANDIDATES_1ST);
+            continue;
         }
         if(fp == stdin) fprintf(stderr, "nc2 ? ");
         cmdline = fgets(line, 900, fp);
@@ -669,6 +959,10 @@ int main(int argc, char *argv[])
 		}
         int nc2 = atoi(line);
         if(fp == stdin) fprintf(stderr, "nc2 = %d\n", nc2);
+        if(nc2 > MAX_NUM_CANDIDATES_2ND) {
+            fprintf(stderr, "too large nc2 (%d) > %d\n", nc2, MAX_NUM_CANDIDATES_2ND);
+            continue;
+        }        
         if(fp == stdin) fprintf(stderr, "OK -> <enter>, reset -> -1");
         cmdline = fgets(line, 900, fp);
         if(cmdline == NULL) {		// EOF
@@ -696,30 +990,42 @@ int main(int argc, char *argv[])
         #else
         double total_filtering = 0, total_kNN = 0, total_total = 0;
         #endif
-
+ 
         for(int m = 0; m < num_query_files; m++) {
 			use_system("VmSize");
 			int num_queries = num_qr[m];
-			#ifdef NUM_Q
-			if(NUM_Q != 0 && NUM_Q < num_queries) { num_queries = NUM_Q; }
-			#endif
-        
 			#if NUM_K > 0 || NUM_K == -2
 				for(int q = 0; q < num_queries; q++) { make_empty_kNN_buffer(top_k[q]); }
 			#endif
 
+			#ifdef NUM_Q
+			if(NUM_Q != 0 && NUM_Q < num_queries) { num_queries = NUM_Q; }
+			#endif
+        
+            #ifdef QPSMAP_ON_SECONDARY_MEMORY
+            // QPSMAPがSSDのときは，検索が遅いので，質問数を100個に減らして実行
+            //if(num_queries > 100) {
+            //    num_queries = 100;
+            //}
+            #endif
             struct timespec tp1, tp2, tp3;
             clock_gettime(CLOCK_METHOD, &tp1);
             double e_time_filtering = 0, e_time_kNN = 0, e_time_total = 0;
             reset_filtering_cost();
 
             double trial_search_cost[num_queries];
+            double trial_filtering_cost[num_queries];
+            int trial_ivl_count[num_queries];
             #ifdef SELF_EVAL
 			int found = 0;
             #endif
 
-            for(int q = 0; q < num_queries; q++) {
-
+//            for(int q = 0; q < num_queries; q++) {
+            int q; // もともとの質問ファイル内での質問番号 （q_1stから始まる．Trialが進むと，q_1stが0でなくなる）
+            int q_local; // Trial内での局所的な質問番号（毎回0から始まる）
+//            fprintf(stderr, "search starts (num_queries = %d): from %d to %d\n", num_queries, q_1st, q_1st + num_queries);
+            for(q_local = 0; q_local < num_queries; q_local++) {
+                q = q_local + q_1st;
                 // 1st filtering のための query_sketch を作る．
 	            clock_gettime(CLOCK_METHOD, &tp1);
                 set_query_sketch(&query_sketch, &qr[m][q], pivot);
@@ -731,9 +1037,10 @@ int main(int argc, char *argv[])
 
                 // double-filtering でデータ番号を求める．
                 double_filtering_by_sketch_enumeration_hamming_and_qpsmap(&query_sketch, table_for_packed, bucket_ds, packed_qpsmap_data, data_num_candidates, num_candidates_1st, num_candidates_2nd);
-
+                trial_ivl_count[q_local] = ivl_count;
                 clock_gettime(CLOCK_METHOD, &tp2);
 				e_time_filtering += e_time(&tp1, &tp2);
+                trial_filtering_cost[q_local] = e_time(&tp1, &tp2);
 
                 #if NUM_K == 0
                     // Filtering のみで，そのコストを求める．
@@ -803,12 +1110,23 @@ int main(int argc, char *argv[])
                         #else
                         search_kNN_on_ram(ftr_id, &qr[m][q], num_candidates_2nd, data_num_candidates, top_k[q]);
                         #endif
+                        #ifdef SELF_EVAL
+                        for(int d = 0; d < num_top_k; d++) {
+                            if(correct_answer[m][q].dist[0] == top_k[q]->buff[d].dist) {
+                                found++;
+                                break;
+                            }
+                        }
+//                      trial_found[q] = correct_answer[m][q].dist[0] == top_k[q]->buff[0].dist;
+//                      trial_dist[q] = top_k[q]->buff[0].dist; 
+                        #endif
                     }
                 #endif
 				clock_gettime(CLOCK_METHOD, &tp3);
 				e_time_kNN += e_time(&tp2, &tp3);
 				e_time_total += e_time(&tp1, &tp3);
-                trial_search_cost[q] = e_time(&tp1, &tp3);
+//                trial_search_cost[q] = e_time(&tp1, &tp3);
+                trial_search_cost[q_local] = e_time(&tp1, &tp3);
             }
 //          printf("trial, f, query, found,  dist,  filtering, total_cost, average, stdev\n");
             double sum = 0, sum2 = 0, ave, stdev, cost_min = 1000, cost_max = 0;
@@ -821,9 +1139,9 @@ int main(int argc, char *argv[])
             ave = sum / num_queries;
             stdev = sqrt(sum2 / num_queries - ave * ave);
             #ifdef PRINT_SEARCH_COST
-            fprintf(fp_search_cost, "trial, file, query_num, search_cost\n");
+            fprintf(fp_search_cost, "trial, file, query_num, filtering_cost, search_cost, ivl_count\n");
             for(int q = 0; q < num_queries; q++) {
-                fprintf(fp_search_cost, "%d, %d, %d, %.4lf\n", trial, m, q, trial_search_cost[q]);
+                fprintf(fp_search_cost, "%d, %d, %d, %.4lf, %.4lf, %d\n", trial, m, q, trial_filtering_cost[q], trial_search_cost[q], trial_ivl_count[q]);
             }
             fprintf(fp_search_cost, "%d, %d, summary, %.4lf, %.4lf, %.4lf, %.4lf\n", trial, m, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
             #endif
@@ -835,11 +1153,16 @@ int main(int argc, char *argv[])
 //            #endif
 
             #ifdef SELF_EVAL
-            double recall_1 = recall_kNN_1(num_queries, correct_answer[m], top_k);
-            double recall_k = recall_kNN(num_queries, correct_answer[m], top_k);
+//            for(int x = 0; x < 5; x++) {
+//                printf("q = %d, dist = %u\n", x, correct_answer[m][x].dist); 
+//            }
+//            getchar();
+            double recall_1 = recall_kNN_1(num_queries, correct_answer[m] + q_1st, top_k + q_1st);
+            double recall_k = recall_kNN(num_queries, correct_answer[m] + q_1st, top_k + q_1st);
             printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q), recall_1, %.1lf, found = %d, recall_k, %.1lf\n", 
                 e_time_filtering, e_time_kNN, e_time_total, ave * 1000, stdev * 1000, recall_1, found, recall_k);
-            printf("filtering cost: 1st = %.4lf, 2nd = %.4lf\n", filtering_cost_1st, filtering_cost_2nd);
+            printf("filtering cost: 1st = %.4lf (ms/q), 2nd = %.4lf (ms/q), kNN (reranking) cost: %.4lf (ms/q)\n", 
+                (double)filtering_cost_1st / num_queries * 1000, (double)filtering_cost_2nd / num_queries * 1000, e_time_kNN / num_queries * 1000);
             total_filtering += e_time_filtering; total_kNN += e_time_kNN, total_total += e_time_total, total_recall += recall_1;
             if(fp_summary != NULL) {
                 #ifdef FTR_ON_MAIN_MEMORY
@@ -853,7 +1176,7 @@ int main(int argc, char *argv[])
             #else
             printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q)\n", 
                 e_time_filtering, e_time_kNN, e_time_total, ave * 1000, stdev * 1000);
-            printf("filtering cost: 1st = %.4lf, 2nd = %.4lf\n", filtering_cost_1st, filtering_cost_2nd);
+            printf("filtering cost: 1st = %.4lf (ms/q), 2nd = %.4lf (ms/q)\n", (double)filtering_cost_1st / num_queries * 1000, (double)filtering_cost_2nd / num_queries * 1000);
             total_filtering += e_time_filtering; total_kNN += e_time_kNN, total_total += e_time_total;
             if(fp_summary != NULL) {
                 #ifdef FTR_ON_MAIN_MEMORY
@@ -866,7 +1189,7 @@ int main(int argc, char *argv[])
             }
             #endif
             #ifdef SELF_EVAL
-            out_result_NN(result_filename, num_queries, correct_answer[m], top_k);
+            out_result_NN(result_filename, num_queries, correct_answer[m] + q_1st, top_k + q_1st);
             #else
             out_result_NN(result_filename, num_queries, NULL, top_k);
             #endif
@@ -882,6 +1205,12 @@ int main(int argc, char *argv[])
 //				FREE(top_k, sizeof(kNN_buffer *) * num_queries);
 //			#endif
 			use_system("VmSize");
+            if(NUM_Q < num_qr[m]) {
+                q_1st += NUM_Q;
+                if(q_1st + NUM_Q > num_qr[m]) {
+                    q_1st = 0;
+                }
+            }
 		}
         #ifdef SELF_EVAL
         #ifdef FILTERING_BY_SKETCH_ENUMERATION_HAMMING

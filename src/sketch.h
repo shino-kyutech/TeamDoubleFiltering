@@ -252,9 +252,10 @@ typedef struct {
 } sub_dimension;
 
 //#define QSIZE  BIT 
-#define QSIZE  (1L << PJT_DIM) // 最悪の場合
+//#define QSIZE  (1L << PJT_DIM) // 最悪の場合
 // #define QSIZE 100000	// 実際には，m 個のスケッチを列挙するためには，queue の最大要素数は m．1個のスケッチに対する平均データ数は 22ビットで　900以上，26ビットでも20個以上
 						// 2^w の割り当ては無駄で，減らした方がよいと考えてみたが，速度などへの悪影響はなかった．
+#define QSIZE  (1L << (PJT_DIM - 3)) // 実際には，DEEP1Bでは，PJT_DIM = 26 のときで，QUEのに割り当てるRAMが1GBになるので，少し，減らしてみる．
 typedef struct {
     dist_type key;
 	sketch_type sk;

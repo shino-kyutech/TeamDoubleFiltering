@@ -2,6 +2,8 @@
 // 特徴データに関する型定義とデータセットファイルの入出力
 #include "parm.h"
 #include "config.h"
+#include <fcntl.h>
+#include <unistd.h>
 
 // dataset setting (for Image dataset, #define DATASE IMAGE and switch using DATASET macro)
 // typedef enum {IMAGE, DECAF, DEEP1B} dataset;
@@ -88,7 +90,10 @@ typedef struct {
 
 // 特徴データのファイル入出力
 
-typedef enum {LOW_LEVEL, HIGH_LEVEL} file_io;
+// typedef enum {LOW_LEVEL, HIGH_LEVEL} file_io;
+
+#define LOW_LEVEL 0
+#define HIGH_LEVEL 1
 
 #ifndef FILE_IO
 #define FILE_IO HIGH_LEVEL 
@@ -98,26 +103,26 @@ typedef enum {LOW_LEVEL, HIGH_LEVEL} file_io;
 
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
 
 typedef int file_handle;
 
-#define READ_OPEN(fn) open(fn, O_RDONLY)
-#define OPEN_ERROR (-1)
-#define CLOSE(fh) close(fh)
-#define READ(fh, bf, bs) (read(fh, bf, bs) == (bs))
-#define SEEK(fh, offset, origin) lseek(fh, offset, origin)
+  #define READ_OPEN(fn) open(fn, O_RDONLY)
+  #define OPEN_ERROR (-1)
+  #define CLOSE(fh) close(fh)
+  #define READ(fh, bf, bs) (read(fh, bf, bs) == (bs))
+  #define SEEK(fh, offset, origin) lseek(fh, offset, origin)
+  #define FILE_ADVISE(fh, offset, len, advise) posix_fadvise(fh, offset, len, advise)
 
 #else // HIGH_LEVEL
 
 typedef FILE *file_handle;
 
-#define READ_OPEN(fn) fopen(fn, "rb")
-#define OPEN_ERROR NULL
-#define CLOSE(fh) fclose(fh)
-#define READ(fh, bf, bs) (fread(bf, bs, 1, fh) == 1)
-#define SEEK(fh, offset, origin) fseek(fh, offset, origin)
+  #define READ_OPEN(fn) fopen(fn, "rb")
+  #define OPEN_ERROR NULL
+  #define CLOSE(fh) fclose(fh)
+  #define READ(fh, bf, bs) (fread(bf, bs, 1, fh) == 1)
+  #define SEEK(fh, offset, origin) fseek(fh, offset, origin)
+  #define FILE_ADVISE(fh, offset, len, advise) posix_fadvise(fileno(fh), offset, len, advise)
 
 #endif // FILE_IO
 

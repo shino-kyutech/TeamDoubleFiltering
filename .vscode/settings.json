@@ -1,0 +1,19 @@
+{
+    "files.associations": {
+        "pivot_selection.h": "c",
+        "knn_search.h": "c",
+        "cmath": "c",
+        "e_time.h": "c",
+        "ftr.h": "c",
+        "stdlib.h": "c",
+        "bit_op.h": "c",
+        "smap.h": "c",
+        "type_traits": "c",
+        "cstdlib": "c",
+        "quick.h": "c",
+        "stdio.h": "c",
+        "string.h": "c"
+    },
+    "C_Cpp.dimInactiveRegions": false,
+    "C_Cpp.errorSquiggles": "Disabled"
+}

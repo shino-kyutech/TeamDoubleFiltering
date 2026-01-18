@@ -23,7 +23,7 @@ echo "19. factor_inf = FACTOR_INF"
 echo "20. factor2    = FACTOR_INF2"
 echo "21. thd_plus   = THREAD_PLUS"
 echo "22. #threads_p = number of threads for preparation before search (0 -> same as #threads)"
-echo "23. FTR_ON     = 0 -> Second memory, 1 -> RAM"
+echo "23. FTR_ON     = 0 -> Second memory, 1 -> RAM, 2 -> Secondary memory for QPSMAP and FTR"
 echo "24. use pd     = (0: without, 1: use pd)"
 echo "25. batch file = file name including hyper parameters (nc1 and nc2), or NONE for interactive manner"
 echo "26. summary.csv = summary file"
@@ -41,6 +41,9 @@ if [ $dataset == "PUBMED23" ] ; then
 elif [ $dataset == "LAION2B" ] ; then
 	qr_prefix=laion2b_query_
 	prefix=laion2b_
+elif [ $dataset == "DECAF" ] ; then
+	qr_prefix=query_
+	prefix=fc6_
 elif [ $dataset == "DEEP1B" ] ; then
 	qr_prefix=query_
 	prefix=base_
@@ -51,6 +54,7 @@ ds_dir=/app/ftr
 qr_dir=/app/query
 pv_dir=/app/pivot
 bk_dir=/app/bkt
+sm_dir=/app/smap
 
 #set -x
 
@@ -172,6 +176,31 @@ summary=$1; shift	# サマリーを出力する -> ファイル名を指定（�
 scost=$1; shift		# 処理コストのログ出力をする -> ファイル名を指定（ログ出力と同じフォルダ内），しない -> NONE
 version=$1; shift	# プログラムバージョン（PUBMED23では，v5_2）
 
+qqbit=$qbit
+if [ $qbit -eq 6 ] ; then
+sm="$sm_dir/${pivot1}_${pivot2}_${range}_3-bit.sm"
+qqbit=3
+else
+sm="$sm_dir/${pivot1}_${pivot2}_${range}_${qbit}-bit.sm"
+fi
+if [ ! -e $sm ] ; then
+	echo qpsmap file $sm does not exist.
+	exit
+fi
+
+smap_dim=$($pr_dir/qpsmap_header.sh $sm DIM)
+quantize_bit=$($pr_dir/qpsmap_header.sh $sm BIT)
+
+if [ $smap_dim -ne $w2 ] ; then
+    echo "invalid smap_dim (SMAP_DIM = $w2, DIM in $sm = $smap_dim) "
+    exit
+fi
+
+if [ $quantize_bit -ne $qqbit ] ; then
+    echo "invalid quantize_bit (QUANTIZE_BIT = $qqbit, DIM in $sm = $quantize_bit)" 
+    exit
+fi
+
 pr=search_by_double_filtering_hamming_smap_${version}
 
 if [ $batch != NONE ] ; then
@@ -185,12 +214,6 @@ if [ $interval -le 1 ] ; then
 ft="FILTERING_BY_SKETCH_ENUMERATION_HAMMING"
 elif [ $interval -le 4 ] ; then
 ft="FILTERING_BY_SKETCH_ENUMERATION_C2N"
-fi
-
-if [ $fo == 0 ] ; then
-fo="SECONDARY_MEMORY"
-else
-fo="MAIN_MEMORY"
 fi
 
 fr="ARRANGEMENT_ASIS"
@@ -256,7 +279,7 @@ fi
 cflags="$cflags -DFILE_IO=LOW_LEVEL"
 cflags="$cflags -DSELF_EVAL"
 cflags="$cflags -DNUM_THREADS=$nt"
-cflags="$cflags -DMEMORY_LIMIT=115e9"
+cflags="$cflags -DMEMORY_LIMIT=134e9"
 
 cflags="$cflags -DCOMPILE_TIME"				# プログラム編集時に利用する parm.h の定義を無効にするスイッチ
 cflags="$cflags -D$dataset"
@@ -384,6 +407,18 @@ else
 	cflags="$cflags -DSMAP_PARTITION_TYPE_QBP"
 fi
 
+if [ $fo == 0 ] ; then
+fo="SECONDARY_MEMORY"
+elif [ $fo == 1 ] ; then
+fo="MAIN_MEMORY"
+else
+fo="SECONDARY_MEMORY"
+cflags="$cflags -DQPSMAP_ON_SECONDARY_MEMORY"
+#if [ $nt > 1 ] ; then
+cflags="$cflags -DQPSMAP_BUFFER_SIZE=1000"
+#fi
+fi
+
 cflags="$cflags -DFTR_ON_${fo}"
 cflags="$cflags -DFTR_${fr}"
 
@@ -393,6 +428,7 @@ cflags="$cflags -D${ft}"
 cflags="$cflags -DPIVOT_FILE=\"$p1\""
 cflags="$cflags -DBUCKET_FILE=\"$b1\""
 cflags="$cflags -DSMAP_PIVOT_FILE=\"$p2\""
+cflags="$cflags -DQPSMAP_FILE=\"$sm\""
 cflags="$cflags -DQUERY_FILE=\"$qr\""
 cflags="$cflags -DANSWER_FILE=\"$an\""
 cflags="$cflags -DRESULT_FILE=\"$rs/result.csv\""
@@ -409,7 +445,7 @@ fi
 if [ $scost != NONE ] ; then
 cflags="$cflags -DPRINT_SEARCH_COST=\"$rs/${scost}.csv\""
 fi
-cflags="$cflags -DANSWER_DIST_FLOAT"
+#cflags="$cflags -DANSWER_DIST_FLOAT"
 
 cflags="$cflags -DNUM_K=$nk"
 

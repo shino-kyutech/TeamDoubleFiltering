@@ -13,6 +13,7 @@
 #define PSMAP_PIVOT_FILE "psmap_pivot.csv"
 #define SMAP_PIVOT_FILE "smap_pivot.csv"
 #define PQBP_PIVOT_FILE "pqbp_pivot.csv"
+#define QPSMAP_FILE "sketch_wxx_QPSMAP_pyy.sm"
 #define BUCKET_FILE "pivot_range.bkt"
 #define QUERY_FILE "query_xx.ftr"
 #define ANSWER_FILE "query_xx.csv"

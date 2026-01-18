@@ -28,7 +28,7 @@ void use_system(char *rs)
 		fprintf(stderr, "system() error.\n");
 		exit(1);
 	}
-	printf("allocated memory = %10.4e\n", (double)allocated_memory);
+	printf("allocated memory = %10.4e (%5.2e GB)\n", (double)allocated_memory, (double)allocated_memory / 1024 / 1024 / 1024);
 	fflush(stdout);
 }
 

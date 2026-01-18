@@ -26,6 +26,7 @@ file_handle open_ftr_file(char *filename, ftr_header_type *header)
 		fprintf(stderr, "open_ftr_file error, file name = %s\n", filename);
 		return OPEN_ERROR;
 	}
+	FILE_ADVISE(fh, 0, 0, POSIX_FADV_DONTNEED);
 	if(!READ(fh, header, sizeof(ftr_header_type))) {
 		fprintf(stderr, "open_ftr_file error: file name = %s\n", filename);
 		return OPEN_ERROR;
@@ -39,7 +40,9 @@ int get_ftr_id(file_handle fh, ftr_header_type *header, int data_num, struct_ftr
 {
 	if(data_num >= header->num_data) return 0;
 	SEEK(fh, sizeof(ftr_header_type) + (long)data_num * sizeof(struct_ftr_id), SEEK_SET);
-	return READ(fh, ftr_id, sizeof(struct_ftr_id)); 
+	int rc = READ(fh, ftr_id, sizeof(struct_ftr_id)); 
+	FILE_ADVISE(fh, sizeof(ftr_header_type) + (long)data_num * sizeof(struct_ftr_id), (long)data_num * sizeof(struct_ftr_id), POSIX_FADV_DONTNEED);
+	return rc;
 }
 
 // 特徴データとデータIDをnum_data個まとめて読む．retuen value (error -> 0, no error -> number of data read-in) 
@@ -56,7 +59,9 @@ int get_ftr_id_bulk(file_handle fh, ftr_header_type *header, int data_num, int n
 		num_data = header->num_data - data_num;
 	}
 	SEEK(fh, sizeof(ftr_header_type) + (long)data_num * sizeof(struct_ftr_id), SEEK_SET);
-	return READ(fh, ftr_id, sizeof(struct_ftr_id) * num_data) ? num_data : 0; 
+	int rc = READ(fh, ftr_id, sizeof(struct_ftr_id) * num_data); 
+	FILE_ADVISE(fh, sizeof(ftr_header_type) + (long)data_num * sizeof(struct_ftr_id), sizeof(struct_ftr_id) * num_data, POSIX_FADV_DONTNEED);
+	return rc ? num_data : 0;
 }
 
 struct_dataset *read_dataset_n(int num_ftr_files, char *filename[])
@@ -292,6 +297,7 @@ int get_ftr_block(struct_multi_ftr *mf, int data_num_list[], int start, int list
 			fprintf(stderr, "cannot read ftr data (data_num = %d, file_num = %d, data_num_in_f = %d)\n", data_num_list[start + b], f, data_num_in_f);
 			exit(0);
 		}
+		FILE_ADVISE(mf->fh[f], (long)data_num_in_f * sizeof(struct_ftr_id) + sizeof(ftr_header_type), (long)sizeof(struct_ftr_id) * r, POSIX_FADV_DONTNEED);
 //	}
 //		fprintf(stderr, "read OK\n");
 		for(int j = 0; j < r; j++) {
@@ -317,6 +323,7 @@ struct_ftr_id *get_next_ftr_id_from_multi_ftr(struct_multi_ftr *mf, int data_num
 			fprintf(stderr, "cannot read ftr data (data_num = %d, file_num = %d, data_num_in_f = %d)\n", data_num_list[start], f, data_num_in_f);
 			exit(0);
 		}
+		FILE_ADVISE(mf->fh[f], (long)data_num_in_f * sizeof(struct_ftr_id) + sizeof(ftr_header_type), (long)sizeof(struct_ftr_id), POSIX_FADV_DONTNEED);
 		ftr_id = mf->ftr_id;
 //		fprintf(stderr, "data_id = %ld\n", ftr_id->data_id);  getchar();
 	} else {

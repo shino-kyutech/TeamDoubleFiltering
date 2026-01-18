@@ -1,6 +1,7 @@
 //#pragma once
 #include "parm.h"
 #include "bit_op.h"
+#include "ftr.h"
 #include "smap.h"
 #include "e_time.h"
 #ifdef USE_PD_INC
@@ -1397,3 +1398,111 @@ void psmap2uchar_qpsmap(smap_type sm, unsigned char *uchar_smap, double offset[]
         uchar_smap[j] = d;
     }
 }
+
+// QPSMAP ファイルの構造
+// 先頭は qpsmap_header (int smap_dim, int quantize_bit, int num_data)
+// それに続いて，変換時に必要な offset[smap_dim], slice[smap_dim]
+// それ以降に，QPSMAPのデータを num_data 個格納する
+int write_qpsmap(qpsmap_header *hd, double offset[], double slice[], tiny_int *packed_psmap_data, int num, FILE *fp)
+{
+    if(fwrite(hd, sizeof(qpsmap_header), 1, fp) != 1) {
+        fprintf(stderr, "fwrite error (header)\n");
+        return 0;
+    }
+    int smap_dim = hd->smap_dim;
+    if(fwrite(offset, sizeof(double) * smap_dim, 1, fp) != 1) {
+        fprintf(stderr, "fwrite error (offset)\n");
+        return 0;
+    }
+    if(fwrite(slice, sizeof(double) * smap_dim, 1, fp) != 1) {
+        fprintf(stderr, "fwrite error (slice)\n");
+        return 0;
+    }
+    int written = fwrite(packed_psmap_data, sizeof(tiny_int) * PACKED_QPSMAP_SIZE, num, fp);
+    if(written != num) {
+        fprintf(stderr, "fwrite error (packed_psmap_data): num = %d, written = %d\n", num, written);
+        return 0;
+    }
+    return num;
+}
+
+int read_qpsmap(qpsmap_header *hd, double offset[], double slice[], tiny_int *packed_psmap_data, int num, FILE *fp)
+{
+    if(fread(hd, sizeof(qpsmap_header), 1, fp) != 1) {
+        fprintf(stderr, "fread error (header)\n");
+        return 0;
+    }
+    if(hd->num_data != num) {
+        fprintf(stderr, "invalid num_data (num = %d, num in header = %d)\n", num, hd->num_data);
+        return 0;
+    }
+    int smap_dim = hd->smap_dim;
+    if(fread(offset, sizeof(double) * smap_dim, 1, fp) != 1) {
+        fprintf(stderr, "fread error (offset)\n");
+        return 0;
+    }
+    if(fread(slice, sizeof(double) * smap_dim, 1, fp) != 1) {
+        fprintf(stderr, "fread error (slice)\n");
+        return 0;
+    }
+    int read = fread(packed_psmap_data, sizeof(tiny_int) * PACKED_QPSMAP_SIZE, num, fp);
+    if(read != num) {
+        fprintf(stderr, "fread error (packed_psmap_data): num = %d, read = %d\n", num, read);
+        fprintf(stderr, "PACKED_QPSMAP_SIZE = %ld\n", PACKED_QPSMAP_SIZE);
+        return 0;
+    }
+    return num;
+}
+//#define QPSMAP_ON_SECONDARY_MEMORY
+#ifdef QPSMAP_ON_SECONDARY_MEMORY
+static int qpsmap_offset = sizeof(qpsmap_header) + 2 * sizeof(double) * SMAP_DIM;
+//FILE *qpsmap_fp;
+file_handle qpsmap_fp;
+qpsmap_header qpsmap_hd;
+
+int open_qpsmap_file(char *qpsmap_file, double offset[], double slice[])
+{
+//    if(!(qpsmap_fp = fopen(qpsmap_file, "r"))) {
+    if(!(qpsmap_fp = READ_OPEN(qpsmap_file))) {
+        fprintf(stderr, "cannot fopen qpsmap_file (%s))\n", qpsmap_file);
+        return 0;
+    }
+//    if(fread(&qpsmap_hd, sizeof(qpsmap_header), 1, qpsmap_fp) != 1) {
+    if(!READ(qpsmap_fp, &qpsmap_hd, sizeof(qpsmap_header) * 1)) {
+        fprintf(stderr, "fread error (header)\n");
+        return 0;
+    }
+    int smap_dim = qpsmap_hd.smap_dim;
+//    if(fread(offset, sizeof(double) * smap_dim, 1, qpsmap_fp) != 1) {
+    if(!READ(qpsmap_fp, offset, sizeof(double) * smap_dim)) {
+        fprintf(stderr, "fread error (offset)\n");
+        return 0;
+    }
+//    if(fread(slice, sizeof(double) * smap_dim, 1, qpsmap_fp) != 1) {
+    if(!READ(qpsmap_fp, slice, sizeof(double) * smap_dim)) {
+        fprintf(stderr, "fread error (slice)\n");
+        return 0;
+    }
+//    fprintf(stderr, "sizeof(qpsmap_header) = %lu, SMAP_DIM = %d, smap_dim = %d\n", sizeof(qpsmap_header), SMAP_DIM, smap_dim);
+//    fprintf(stderr, "QUANTIZE_BIT = %d, sizeof(tiny_int) = %lu, PACKED_QPSMAP_SIZE = %d\n", QUANTIZE_BIT, sizeof(tiny_int), PACKED_QPSMAP_SIZE);
+    return 1;
+}
+
+// data_num番目から，num個のqpsmapデータを読み込む
+int read_qpsmap_record(int data_num, int num, tiny_int *packed_psmap_data) 
+{
+//    if(fseek(qpsmap_fp, qpsmap_offset + data_num * sizeof(tiny_int) * PACKED_QPSMAP_SIZE, SEEK_SET)) {
+    if(SEEK(qpsmap_fp, (long)(qpsmap_offset + data_num * sizeof(tiny_int) * PACKED_QPSMAP_SIZE), SEEK_SET) < 0) {
+        fprintf(stderr, "fseek error (qpsmap_record): data_num = %d\n", data_num);
+        return 0;
+    }
+//    if(fread(packed_psmap_data, sizeof(tiny_int) * PACKED_QPSMAP_SIZE, num, qpsmap_fp) != num) {
+    if(!READ(qpsmap_fp, packed_psmap_data, sizeof(tiny_int) * PACKED_QPSMAP_SIZE * num)) {
+        fprintf(stderr, "fread error (qpsmap_record): data_num = %d\n", data_num);
+        fprintf(stderr, "PACKED_QPSMAP_SIZE = %ld\n", PACKED_QPSMAP_SIZE);
+        return 0;
+    }
+	FILE_ADVISE(qpsmap_fp, qpsmap_offset + data_num * sizeof(tiny_int) * PACKED_QPSMAP_SIZE, (long)data_num * sizeof(tiny_int) * PACKED_QPSMAP_SIZE, POSIX_FADV_DONTNEED);
+    return num;
+}
+#endif

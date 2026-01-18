@@ -41,16 +41,20 @@ if [ $dataset == "PUBMED23" ] ; then
 elif [ $dataset == "LAION2B" ] ; then
 	qr_prefix=laion2b_query_
 	prefix=laion2b_
+elif [ $dataset == "DECAF" ] ; then
+	qr_prefix=query_
+	prefix=fc6_
 elif [ $dataset == "DEEP1B" ] ; then
 	qr_prefix=query_
 	prefix=base_
 fi
 
-pr_dir=/app/src
-ds_dir=/app/ftr
-qr_dir=/app/query
-pv_dir=/app/pivot
-bk_dir=/app/bkt
+pr_dir=$SRC
+ds_dir=$FTR
+qr_dir=$QUR
+pv_dir=$PIV
+bk_dir=$BKT
+sm_dir=$SMA
 
 #set -x
 
@@ -172,8 +176,36 @@ summary=$1; shift	# サマリーを出力する -> ファイル名を指定（�
 scost=$1; shift		# 処理コストのログ出力をする -> ファイル名を指定（ログ出力と同じフォルダ内），しない -> NONE
 version=$1; shift	# プログラムバージョン（PUBMED23では，v5_2）
 
-pr=search_by_double_filtering_hamming_smap_${version}
+qqbit=$qbit
+if [ $qbit -eq 6 ] ; then
+sm="$sm_dir/${pivot1}_${pivot2}_${range}_3-bit.sm"
+qqbit=3
+else
+sm="$sm_dir/${pivot1}_${pivot2}_${range}_${qbit}-bit.sm"
+fi
+if [ ! -e $sm ] ; then
+	echo qpsmap file $sm does not exist.
+	exit
+fi
 
+smap_dim=$($pr_dir/qpsmap_header.sh $sm DIM)
+quantize_bit=$($pr_dir/qpsmap_header.sh $sm BIT)
+
+if [ $smap_dim -ne $w2 ] ; then
+    echo "invalid smap_dim (SMAP_DIM = $w2, DIM in $sm = $smap_dim) "
+    exit
+fi
+
+if [ $quantize_bit -ne $qqbit ] ; then
+    echo "invalid quantize_bit (QUANTIZE_BIT = $qqbit, DIM in $sm = $quantize_bit)" 
+    exit
+fi
+
+if [ $version == "wsl" ] ; then
+pr=search_by_double_filtering_hamming_smap_v7
+else
+pr=search_by_double_filtering_hamming_smap_${version}
+fi
 if [ $batch != NONE ] ; then
   if [ ! -e $batch ] ; then
   echo batch file $batch does not exist.
@@ -256,7 +288,7 @@ fi
 cflags="$cflags -DFILE_IO=LOW_LEVEL"
 cflags="$cflags -DSELF_EVAL"
 cflags="$cflags -DNUM_THREADS=$nt"
-cflags="$cflags -DMEMORY_LIMIT=115e9"
+cflags="$cflags -DMEMORY_LIMIT=124e9"
 
 cflags="$cflags -DCOMPILE_TIME"				# プログラム編集時に利用する parm.h の定義を無効にするスイッチ
 cflags="$cflags -D$dataset"
@@ -393,6 +425,7 @@ cflags="$cflags -D${ft}"
 cflags="$cflags -DPIVOT_FILE=\"$p1\""
 cflags="$cflags -DBUCKET_FILE=\"$b1\""
 cflags="$cflags -DSMAP_PIVOT_FILE=\"$p2\""
+cflags="$cflags -DQPSMAP_FILE=\"$sm\""
 cflags="$cflags -DQUERY_FILE=\"$qr\""
 cflags="$cflags -DANSWER_FILE=\"$an\""
 cflags="$cflags -DRESULT_FILE=\"$rs/result.csv\""
@@ -422,7 +455,7 @@ fi
 #cflags="$cflags -DSELECT_K_BY_QUICK_SORT"
 
 
-if [ $nq > 0 ] ; then
+if [ $nq -gt 0 ] ; then
 cflags="$cflags -DNUM_Q=$nq"
 fi
 

@@ -459,7 +459,10 @@ struct_bucket *read_bucket(char *filename)
 	} else {
 		fprintf(stderr, "calloc bkt failed. exit!\n");
 	}
-	b->sk_num = (sk_num_pair *)malloc(sizeof(sk_num_pair) * b->num_nonempty_buckets);
+//	b->sk_num = (sk_num_pair *)malloc(sizeof(sk_num_pair) * b->num_nonempty_buckets);
+	b->sk_num = MALLOC(sizeof(sk_num_pair) * b->num_nonempty_buckets);
+	fprintf(stderr, "after malloc sk_num.\n");
+	use_system("VmSize");
 	int num, j;
 	sk_num_pair snp;
 	long int s_next = 0;
@@ -495,12 +498,21 @@ struct_bucket *read_bucket(char *filename)
 	fprintf(stderr, "num_nonempty_buckets = %d, average number of elements in nonempty buckets = %.2lf\n", b->num_nonempty_buckets, (double)num_data / b->num_nonempty_buckets);
 	fclose(fp);
 
+	#ifdef BKT_WITH_SK
 	b->sk = MALLOC(sizeof(sketch_type) * num_data);
 	for(int i = 0; i < b->num_nonempty_buckets; i++) {
 		for(int j = b->sk_num[i].pos; j < b->sk_num[i].pos + b->sk_num[i].num; j++) {
 			memcpy(&b->sk[b->idx[j]], &b->sk_num[i].sk, sizeof(sketch_type));
 		}
 	}
+	#else
+	fprintf(stderr, "bkt without sketch\n");
+	#endif
+//	#ifndef QPSMAP_ON_SECONDARY_MEMORY
+	// QPSMAP_ON_SECONDARY_MEMORY のときは，ここをFREEするとRAMに余裕でできてしまうため，ディスクキャッシュの影響が少し残るので，あえてFREEしないでおく．?
+	FREE(b->sk_num, sizeof(sk_num_pair) * b->num_nonempty_buckets);
+	b->sk_num = NULL;
+//	#endif
 	use_system("VmSize");
 
 	#ifdef WITH_STAT
@@ -1241,6 +1253,8 @@ void filtering_by_sequential_search_using_quick_select_k(struct_query_sketch *qs
 
 interval_list *new_interval_list(unsigned int nt, unsigned int size)
 {
+	fprintf(stderr, "new_interval_list: nt = %u, size = %u\n", nt, size);
+	use_system("VmSize");
 	interval_list *il = MALLOC(sizeof(interval_list));
 	il->nt 		= nt;
 	il->size 	= size;
@@ -1251,6 +1265,8 @@ interval_list *new_interval_list(unsigned int nt, unsigned int size)
 	for(int i = 0; i < nt; i++) {
 		il->list[i * size].start = 0;
 	}
+	fprintf(stderr, "new_interval_list OK\n");
+	use_system("VmSize");
 
 	return il;
 }
@@ -1259,6 +1275,10 @@ void realloc_interval_list(interval_list *ivl, unsigned int size) {
 	FREE(ivl->list, sizeof(interval) * ivl->nt * ivl->size);
 	ivl->size = size;
 	ivl->list = MALLOC(sizeof(interval) * ivl->nt * ivl->size);
+	ivl->lg[0] = 0;
+	for(int i = 0; i < ivl->nt; i++) {
+		ivl->list[i * size].start = 0;
+	}
 }
 
 vlist *new_vlist(int size, int step) {
@@ -2432,34 +2452,13 @@ inline sketch_type Mu(int b, int lg, int idx[], int i, sub_dimension *sd)
 				#else
 				static vlist *vl[(1 << PARA_ENUM_INF)][MAX_PRIORITY + 1];
 				#endif
-//					#define PR_FACTOR 20
-//					dist_type max_priority = MAX_PRIORITY / PR_FACTOR;
+
 				dist_type max_priority = MAX_PRIORITY;
-//					for(int i = 0; i < low_dim + add_dim; i++) {
-//						max_priority += qs->bd[qs->idx[i]];
-//					}
-//					dist_type max_priority = priority(-1 ^ qs->sketch, qs);
-/*					static int max_priority_all = 0;
-				if(qs->query.query_num == 0) {
-					max_priority_all = max_priority;
-					fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
-				} else if(max_priority > max_priority_all) {
-					max_priority_all = max_priority;
-					fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
-				}
-				if(max_priority > MAX_PRIORITY) {
-					fprintf(stderr, "Too large max_priority (= %d), q = %d\n", max_priority, qs->query.query_num);
-					exit(1);
-				}
-*/					
+
 				int num_data_of_priority[mu_thread_size][max_priority + 1];
 				int lg_of_priority[mu_thread_size][max_priority + 1];
 				int total_enum_data[max_priority + 1];
 
-// fprintf(stderr, "max_priority = %d, max_low_priority = %d\n", max_priority, max_low_priority); getchar();
-//					if(qs->query.query_num == 0) {
-//						fprintf(stderr, "q = %d, max_priority = %d\n", qs->query.query_num, max_priority);
-//					}
 				#ifndef VLIST_SIZE
 				#define VLIST_SIZE 10
 				#define VLIST_STEP 10
@@ -5875,7 +5874,20 @@ int partition_by_pivot_answer(answer_type ans[], int i, int j, dist_type piv)
    } while(left <= right);
    return left;
 }
-
+/*
+void insertion_sort_answer(answer_type data[], int n)
+{
+	int i, j;
+	answer_type temp;
+	for (i = 1; i < n; i++) {
+		temp = data[i];
+		for (j = i; j > 0 && comp_answer(&data[j-1], &temp) > 0; j--) {
+			data[j] = data[j - 1];
+		}
+		data[j] = temp;
+	}
+}
+*/
 void quick_sort_answer(answer_type ans[], int i, int j)
 {
 	int pivotindex, k;
@@ -6382,7 +6394,7 @@ int balance_interval_list(interval_list *ivl)
 }
 
 #define KNN_BUFFER_FACTOR 3 // kNN_buffer の buff の大きさを k の何倍にするかを指定する．
-#define KNN_BUFFER_FACTOR2 2 // タイ（同点）のものをここまで残す．
+#define KNN_BUFFER_FACTOR2 2 // タイ（同点）のものをここまで残す．(未使用)
 
 kNN_buffer *new_kNN_buffer(int k)
 {
@@ -6425,7 +6437,7 @@ dist_type push_kNN_buffer(answer_type *a, kNN_buffer *b)
 	return d;
 }
 
-/*
+
 #ifndef PUBMED23
 int comp_answer(const void *a, const void *b) {
 	if(((answer_type *) a) -> dist < (((answer_type *) b) -> dist))
@@ -6436,7 +6448,7 @@ int comp_answer(const void *a, const void *b) {
 		return 1;
 }
 #else
-*/
+
 int comp_answer(const void *a, const void *b) {
 	if(((answer_type *) a) -> dist < (((answer_type *) b) -> dist)) {
 		return -1;
@@ -6452,15 +6464,14 @@ int comp_answer(const void *a, const void *b) {
 		return 1;
 	}
 }
-//#endif
+#endif
 
 dist_type flush_kNN_buffer(kNN_buffer *b)
 {
 	if(b->num == 0) return b->k_nearest;
-//	if(b->num <= b->k) { fprintf(stderr, "kNN_buff: num <= k, num = %d, k = %d\n", b->num, b->k); }
 	if(b->num > b->k) {
 		quick_select_k_answer(b->buff, 0, b->num - 1, b->k);
-//		qsort(b->buff, b->num, sizeof(answer_type), comp_answer);
+//		insertion_sort_answer(b->buff, b->num);
 		b->num = b->k;
 	}
 	b->k_nearest = b->buff[0].dist;
@@ -6931,7 +6942,8 @@ int answer_check(answer_type *ans, int num_candidates, int data_num_of_candidate
 
 void search_NN(dataset_handle *dh, query_type *qr, int num_candidates, int data_num_of_candidate[], kNN_buffer *top_k) // 解候補から top-K を求める（第２段階検索）
 {
-	#if defined(_OPENMP) && NUM_THREADS > 1
+//	#if defined(_OPENMP) && NUM_THREADS > 1
+	#if defined(_OPENMP) && NUM_THREADS > 1 && !defined(RERANKING_BY_SINGLE)
 	omp_set_num_threads(NUM_THREADS);
 	int nt = omp_get_max_threads(); 	// スレッド数を求める
 	answer_type ans[nt];
@@ -6942,7 +6954,8 @@ void search_NN(dataset_handle *dh, query_type *qr, int num_candidates, int data_
 	#endif
 
 	SET_DIST(qr->ftr); // 距離はすべて質問からになるので，片方を質問に固定
-	#if defined(_OPENMP) && NUM_THREADS > 1
+//	#if defined(_OPENMP) && NUM_THREADS > 1
+	#if defined(_OPENMP) && NUM_THREADS > 1 && !defined(RERANKING_BY_SINGLE)
 	for(int t = 0; t < nt; t++) {
 		k_nearest[t] = INT_MAX;
 		if(dh->ftr_on != MAIN_MEMORY) {
@@ -6958,7 +6971,8 @@ void search_NN(dataset_handle *dh, query_type *qr, int num_candidates, int data_
 	}
 	#endif
 	for(int i = 0; i < num_candidates; i++) {
-		#if defined(_OPENMP) && NUM_THREADS > 1
+//		#if defined(_OPENMP) && NUM_THREADS > 1
+		#if defined(_OPENMP) && NUM_THREADS > 1 && !defined(RERANKING_BY_SINGLE)
 		int t = omp_get_thread_num();
 		answer_type *a = &ans[t];
 		struct_multi_ftr *mf = dh->mf[t];
@@ -6972,7 +6986,8 @@ void search_NN(dataset_handle *dh, query_type *qr, int num_candidates, int data_
 		} else {
 			dist = DISTANCE_22(get_next_ftr_id_from_multi_ftr(mf, data_num_of_candidate, i, num_candidates)->ftr);
 		}
-		#if defined(_OPENMP) && NUM_THREADS > 1
+//		#if defined(_OPENMP) && NUM_THREADS > 1
+		#if defined(_OPENMP) && NUM_THREADS > 1 && !defined(RERANKING_BY_SINGLE)
 		if(dist < k_nearest[t]) {
 			a->data_num = data_num_of_candidate[i];
 			a->dist = dist;
@@ -6986,7 +7001,8 @@ void search_NN(dataset_handle *dh, query_type *qr, int num_candidates, int data_
 		}
 		#endif
 	}
-	#if defined(_OPENMP) && NUM_THREADS > 1
+//	#if defined(_OPENMP) && NUM_THREADS > 1
+	#if defined(_OPENMP) && NUM_THREADS > 1 && !defined(RERANKING_BY_SINGLE)
 	// 各スレッドが見つけた暫定解から距離最小のものを選ぶ
 	int min_t = 0;
 	dist_type min_dist = UINT_MAX;
@@ -7152,24 +7168,24 @@ void out_result_NN(char *filename, int num_queries, answer_type_NN ans[], kNN_bu
 	#ifdef SELF_EVAL
 	fprintf(fp, "nearest_idx, nearest_dist, ans_idx[0], ans_dist[0], ans_idx[1], ans_dist[1], ... \n");
 	for(int i = 0; i < num_queries; i++) {
-		#ifndef ANSWER_DIST_FLOAT
+//		#ifndef ANSWER_DIST_FLOAT
 		fprintf(fp, "%d,%d,", ans[i].data_num[0], ans[i].dist[0]);
-		#else
-		fprintf(fp, "%d,%.8f,", ans[i].data_num[0], sqrt(ans[i].dist[0] * 2));
-		#endif
+//		#else
+//		fprintf(fp, "%d,%.8f,", ans[i].data_num[0], sqrt(ans[i].dist[0] * 2));
+//		#endif
 		int k;
 		for(k = 0; k < top_k[i]->k - 1; k++) {
-			#ifndef ANSWER_DIST_FLOAT
+//			#ifndef ANSWER_DIST_FLOAT
 			fprintf(fp, "%d, %d,", top_k[i]->buff[k].data_num, top_k[i]->buff[k].dist);
-			#else
-			fprintf(fp, "%d, %.8f,", top_k[i]->buff[k].data_num, sqrt(top_k[i]->buff[k].dist) / 500.0);
-			#endif
+//			#else
+//			fprintf(fp, "%d, %.8f,", top_k[i]->buff[k].data_num, sqrt(top_k[i]->buff[k].dist) / 500.0);
+//			#endif
 		}
-		#ifndef ANSWER_DIST_FLOAT
+//		#ifndef ANSWER_DIST_FLOAT
 		fprintf(fp, "%d, %d\n", top_k[i]->buff[k].data_num, top_k[i]->buff[k].dist);
-		#else
-		fprintf(fp, "%d, %.8f\n", top_k[i]->buff[k].data_num, sqrt(top_k[i]->buff[k].dist) / 500.0);
-		#endif
+//		#else
+//		fprintf(fp, "%d, %.8f\n", top_k[i]->buff[k].data_num, sqrt(top_k[i]->buff[k].dist) / 500.0);
+//		#endif
 	}
 	#else
 	#ifdef KNN_WITH_DISTANCE
@@ -7416,14 +7432,24 @@ double recall_kNN(int num_queries, answer_type_NN ans[], kNN_buffer *top_k[])
 	return (double)sum / num_queries / k * 100;
 }
 
-// 1-NNの結果をdistで評価する
+// 1-NNの結果をdistで評価する．ANSWER_DIST_FLOATが定義されているときはdata_numで評価する．
 double recall_kNN_1(int num_queries, answer_type_NN ans[], kNN_buffer *top_k[])
 {
 	int sum = 0;
 	for(int q = 0; q < num_queries; q++) {
-		if(top_k[q]->buff[0].data_num == ans[q].data_num[0]) {
+		quick_sort_answer(top_k[q]->buff, 0, top_k[q]->k - 1);
+//		printf("k = %d\n", top_k[q]->k);
+//		for(int i = 0; i < top_k[q]->k; i++) {
+//			printf("i = %d, dist = %d, answer = %d\n", i, top_k[q]->buff[i].dist, ans[q].dist[0]);
+//		}
+//		getchar();
+		#ifndef ANSWER_DISK_FLOAT
+		if(top_k[q]->buff[0].dist == ans[q].dist[0]) {
 			sum++;
 		}
+		#else
+			sum += top_k[q]->buff[0].data_num == ans[q].data_num[0];
+		#endif
 	}
 	return (double)sum / num_queries * 100;
 }
