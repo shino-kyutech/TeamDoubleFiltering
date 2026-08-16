@@ -579,6 +579,13 @@ int double_filtering_by_sketch_enumeration_hamming_and_qpsmap(
 
 #endif // PARALLEL_ENUM
 
+int comp_dbl(const void *a, const void *b)
+{
+    double da = *(const double *)a;
+    double db = *(const double *)b;
+    return (da > db) - (da < db);
+}
+
 #define NUM_NN 30
 int main(int argc, char *argv[])
 {
@@ -646,6 +653,10 @@ int main(int argc, char *argv[])
 		use_system("VmSize");
         #endif
 	}
+
+// Index preparation
+    struct timespec idx1, idx2;
+    clock_gettime(CLOCK_METHOD, &idx1);
 
 	#if defined(PARTITION_TYPE_QBP)
 	pivot_type *pivot = new_pivot(QBP);
@@ -842,6 +853,9 @@ use_system("VmSize");
     clock_gettime(CLOCK_METHOD, &tread2);
     fprintf(stderr, "\ndone: %.4lf (sec)\n", e_time(&tread1, &tread2));
 
+    clock_gettime(CLOCK_METHOD, &idx2);
+    fprintf(stderr, "\nIndex preparation done: %.4lf (sec)\n", e_time(&idx1, &idx2));
+
 	char line[4000], *cmdline, *file_name;
 	FILE *fp2;
 
@@ -872,6 +886,7 @@ use_system("VmSize");
         unsigned int table_for_packed[SMAP_DIM * QUANTIZE_BIT / 8][256]; // 圧縮形式のqpsmapと質問の射影距離のための表関数
     #endif
 
+    // 質問で使用するメモリを触っておく（立ち上がりが遅くなるのを防止する目的）
     for(int m = 0; m < num_query_files; m++) {
         // 1st filtering のための query_sketch を作る．
         set_query_sketch(&query_sketch, &qr[m][0], pivot);
@@ -893,9 +908,9 @@ use_system("VmSize");
 
     if(fp_summary != NULL) {
         #ifdef SELF_EVAL
-        fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, recall@1, recall@30, filtering, 1st(sec), 2nd(sec), kNN(sec), ave(ms/q), stdev(ms/q), min(ms/q), max(ms/q)\n");
+        fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, recall@1, recall@30, filtering, 1st(sec), 2nd(sec), kNN(sec), ave(ms/q), stdev(ms/q), min(ms/q), max(ms/q), 1st_q, 2nd_q, p99, p99.9\n");
         #else
-        fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, filtering, 1st(sec), 2nd(sec), kNN(sec), ave(ms/q), stdev(ms/q), min(ms/q), max(ms/q)\n");
+        fprintf(fp_summary, "trial, query, width, q_bit, ftr_on, nc1, nc2, filtering, 1st(sec), 2nd(sec), kNN(sec), ave(ms/q), stdev(ms/q), min(ms/q), max(ms/q), 1st_q, 2nd_q, p99, p99.9\n");
         #endif
     }
     int trial = 0;
@@ -1143,7 +1158,15 @@ use_system("VmSize");
             for(int q = 0; q < num_queries; q++) {
                 fprintf(fp_search_cost, "%d, %d, %d, %.4lf, %.4lf, %d\n", trial, m, q, trial_filtering_cost[q], trial_search_cost[q], trial_ivl_count[q]);
             }
-            fprintf(fp_search_cost, "%d, %d, summary, %.4lf, %.4lf, %.4lf, %.4lf\n", trial, m, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
+            #endif
+            double search_cost_1st = trial_search_cost[0];
+            double search_cost_2nd = trial_search_cost[1];
+            qsort(trial_search_cost, num_queries, sizeof(double), comp_dbl);
+            double p99  = trial_search_cost[(num_queries - 1) * 99  / 100];
+            double p999 = trial_search_cost[(num_queries - 1) * 999 / 1000];
+            #ifdef PRINT_SEARCH_COST
+            fprintf(fp_search_cost, "%d, %d, summary, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf\n", 
+                trial, m, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000, p99 * 1000, p999 * 1000);
             #endif
 
 //            #ifdef PRINT_KNN_RESULT
@@ -1159,23 +1182,23 @@ use_system("VmSize");
 //            getchar();
             double recall_1 = recall_kNN_1(num_queries, correct_answer[m] + q_1st, top_k + q_1st);
             double recall_k = recall_kNN(num_queries, correct_answer[m] + q_1st, top_k + q_1st);
-            printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q), recall_1, %.1lf, found = %d, recall_k, %.1lf\n", 
-                e_time_filtering, e_time_kNN, e_time_total, ave * 1000, stdev * 1000, recall_1, found, recall_k);
+            printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q), recall_1, %.1lf, found = %d, recall_k, %.1lf, 1st_q = %.4lf (ms/q), 2nd_q = %.4lf (ms/q)\n", 
+                e_time_filtering, e_time_kNN, e_time_total, ave * 1000, stdev * 1000, recall_1, found, recall_k, search_cost_1st * 1000, search_cost_2nd * 1000);
             printf("filtering cost: 1st = %.4lf (ms/q), 2nd = %.4lf (ms/q), kNN (reranking) cost: %.4lf (ms/q)\n", 
                 (double)filtering_cost_1st / num_queries * 1000, (double)filtering_cost_2nd / num_queries * 1000, e_time_kNN / num_queries * 1000);
             total_filtering += e_time_filtering; total_kNN += e_time_kNN, total_total += e_time_total, total_recall += recall_1;
             if(fp_summary != NULL) {
                 #ifdef FTR_ON_MAIN_MEMORY
-                fprintf(fp_summary, "%d, %d, %d, %d, RAM, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf \n", 
-                    trial, m, PJT_DIM, QUANTIZE_BIT, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
+                fprintf(fp_summary, "%d, %d, %d, %d, RAM, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf\n", 
+                    trial, m, PJT_DIM, QUANTIZE_BIT, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000, search_cost_1st * 1000, search_cost_2nd * 1000, p99 * 1000, p999 * 1000);
                 #else
-                fprintf(fp_summary, "%d, %d, %d, %d, SSD, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf \n", 
-                    trial, m, PJT_DIM, QUANTIZE_BIT, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000);
+                fprintf(fp_summary, "%d, %d, %d, %d, SSD, %d, %d, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf, %.4lf\n", 
+                    trial, m, PJT_DIM, QUANTIZE_BIT, nc1, nc2, recall_1, recall_k, e_time_filtering, filtering_cost_1st, filtering_cost_2nd, e_time_kNN, ave * 1000, stdev * 1000, cost_min * 1000, cost_max * 1000, search_cost_1st * 1000, search_cost_2nd * 1000, p99 * 1000, p999 * 1000);
                 #endif
             }
             #else
-            printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q)\n", 
-                e_time_filtering, e_time_kNN, e_time_total, ave * 1000, stdev * 1000);
+            printf("filtering, %.4lf, kNN, %.4lf, total, %.4lf, ave = %.4lf (ms/q), stdev = %.4lf (ms/q), 1st_q = %.4lf (ms/q), 2nd_q = %.4lf (ms/q)\n", 
+                e_time_filtering, e_time_kNN, e_time_total, ave * 1000, stdev * 1000, search_cost_1st * 1000, search_cost_2nd * 1000);
             printf("filtering cost: 1st = %.4lf (ms/q), 2nd = %.4lf (ms/q)\n", (double)filtering_cost_1st / num_queries * 1000, (double)filtering_cost_2nd / num_queries * 1000);
             total_filtering += e_time_filtering; total_kNN += e_time_kNN, total_total += e_time_total;
             if(fp_summary != NULL) {

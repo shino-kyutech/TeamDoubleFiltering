@@ -7437,13 +7437,16 @@ double recall_kNN_1(int num_queries, answer_type_NN ans[], kNN_buffer *top_k[])
 {
 	int sum = 0;
 	for(int q = 0; q < num_queries; q++) {
+//		printf(stderr, "recall_kNN_1: k = %d:", top_k[q]->k);
+//		for(int i = 0; i < top_k[q]->k; i++) {
+//			printf("i = %d, dist = %d, answer = %d\n", i, top_k[q]->buff[i].dist, ans[q].dist[0]);
+//		}
 		quick_sort_answer(top_k[q]->buff, 0, top_k[q]->k - 1);
-//		printf("k = %d\n", top_k[q]->k);
 //		for(int i = 0; i < top_k[q]->k; i++) {
 //			printf("i = %d, dist = %d, answer = %d\n", i, top_k[q]->buff[i].dist, ans[q].dist[0]);
 //		}
 //		getchar();
-		#ifndef ANSWER_DISK_FLOAT
+		#ifndef ANSWER_DIST_FLOAT
 		if(top_k[q]->buff[0].dist == ans[q].dist[0]) {
 			sum++;
 		}

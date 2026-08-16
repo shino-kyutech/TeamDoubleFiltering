@@ -60,9 +60,11 @@ elif [ $DATASET == "PUBMED23" ] ; then
 range=00_23
 #query=otest
 query=20_29
-nn=30
+#nn=30
+nn=10
 p2=25
 use_pd=1
+#use_pd=0
 elif [ $DATASET == "LAION2B" ] || [ $DATASET == "LAION100M" ] ; then
 range=00_102
 query=00_09

@@ -67,6 +67,8 @@ docker run -it --memory=${ram}g --memory-swap=${ram}g --cpus=${cpu} --name=df_${
 -v $bt_dir:/app/batch \
 -v $sm_dir:/app/smap \
 -v $rs_dir:/app/result \
+-v /etc/localtime:/etc/localtime:ro \
+-v /etc/timezone:/etc/timezone:ro \
 -e DATASET=${dataset} \
 -e MAX_RAM=${ram} \
 -e NUM_THREADS=${cpu} \
